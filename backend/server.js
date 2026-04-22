@@ -57,10 +57,21 @@ const sessionStore = new MySQLStore({
   database:           dbConfig.database,
   charset:            'utf8mb4',
   createDatabaseTable: true,
+  endConnectionOnClose: true,
+  clearExpired:        true,
+  checkExpirationInterval: 900000, // prune expired sessions every 15 min
+  expiration:          parseInt(process.env.SESSION_MAX_AGE || '28800000'),
   schema: {
     tableName:   'sessions',
     columnNames: { session_id: 'session_id', expires: 'expires', data: 'data' },
   },
+});
+
+sessionStore.onReady().then(() => {
+  console.log('  Session store: MariaDB connected ✓');
+}).catch(err => {
+  console.error('  Session store ERROR — sessions will not persist across restarts:', err.message);
+  console.error('  Run: mysql -u dvdlib -p dvdlibrary < scripts/migrate-add-auth.sql');
 });
 
 // ── Passport: Google OAuth 2.0 ───────────────────────────────────────────────
@@ -110,21 +121,28 @@ passport.deserializeUser((user, done) => done(null, user));
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use('/posters', express.static(path.join(__dirname, '../frontend/posters')));
 
-app.use(cors());
+app.use(cors({ credentials: true, origin: process.env.APP_URL || true }));
 app.use(express.json());
+
+// Trust the first reverse proxy (nginx/Cloudflare) so req.secure works correctly
+app.set('trust proxy', 1);
+
+// Only mark cookies as Secure if explicitly enabled (requires HTTPS end-to-end)
+// Default: false — works correctly behind nginx HTTP→app or plain HTTP
+const SECURE_COOKIE = process.env.SESSION_COOKIE_SECURE === 'true';
 
 app.use(session({
   key:               'dvdlib_session',
-  secret:            process.env.SESSION_SECRET || 'dvdlib-change-me',
+  secret:            process.env.SESSION_SECRET || 'dvdlib-change-me-in-env',
   store:             sessionStore,
   resave:            false,
   saveUninitialized: false,
+  rolling:           true,   // reset expiry on each request
   cookie: {
     maxAge:   parseInt(process.env.SESSION_MAX_AGE || '28800000'), // 8 hours
     httpOnly: true,
     sameSite: 'lax',
-    // Set secure:true only when behind HTTPS (nginx / Cloudflare)
-    secure:   process.env.NODE_ENV === 'production' && process.env.APP_URL?.startsWith('https'),
+    secure:   SECURE_COOKIE,
   },
 }));
 
@@ -150,7 +168,15 @@ app.get('/auth/google',
 
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/login.html?error=access_denied' }),
-  (req, res) => res.redirect('/')
+  (req, res, next) => {
+    // Explicitly persist session to store BEFORE redirecting.
+    // Without this, the redirect can race ahead of the async DB write
+    // causing the next page load to find no session and loop back to login.
+    req.session.save(err => {
+      if (err) return next(err);
+      res.redirect('/');
+    });
+  }
 );
 
 app.get('/auth/logout', (req, res, next) => {
@@ -885,6 +911,13 @@ app.get('*', (req, res) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🎬  DVD Library running → http://0.0.0.0:${PORT}`);
-  console.log(`    DB:   ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 3306}`);
-  console.log(`    OMDB: ${omdbKey() ? '✓ configured' : '✗ not configured (title/barcode lookup disabled)'}\n`);
+  console.log(`    DB:     ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 3306}`);
+  console.log(`    OMDB:   ${omdbKey() ? '✓ configured' : '✗ not configured'}`);
+  console.log(`    Auth:   ${googleConfigured ? '✓ Google SSO configured' : '✗ Google SSO NOT configured — set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET'}`);
+  if (googleConfigured) {
+    console.log(`    Domain: ${ALLOWED_DOMAIN || '(any Google account)'}`);
+    if (ALLOWED_EMAILS.length) console.log(`    Emails: ${ALLOWED_EMAILS.join(', ')}`);
+    console.log(`    Cookie: secure=${SECURE_COOKIE} | callback: ${process.env.APP_URL || 'http://localhost:'+PORT}/auth/google/callback`);
+  }
+  console.log('');
 });

@@ -968,11 +968,14 @@ function toast(msg, type = 'primary') {
 async function apiCall(path, opts = {}) {
   const res = await fetch(API + path, {
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     ...opts,
   });
   if (res.status === 401) {
-    // Session expired or not authenticated — bounce to login
-    window.location.href = '/login.html?error=session_expired';
+    // If Auth has already confirmed we're logged in, this is a real expiry.
+    // If Auth hasn't run yet (initial load), just redirect cleanly to login.
+    const errParam = Auth.verified ? '?error=session_expired' : '';
+    window.location.href = '/login.html' + errParam;
     throw new Error('Not authenticated');
   }
   const data = await res.json();
@@ -2230,22 +2233,37 @@ const Batch = {
 // AUTH
 // ════════════════════════════════════════════════
 const Auth = {
+  // Set to true once /api/auth/me returns 200 (user is confirmed logged in).
+  // apiCall() uses this to decide whether a later 401 is a real session expiry.
+  verified: false,
+
   async init() {
     try {
-      const data = await apiCall('/auth/me');
+      // Fetch directly (not via apiCall) so we can handle 401 ourselves
+      // without the "session_expired" redirect triggering on first visit.
+      const res = await fetch(API + '/auth/me', { credentials: 'same-origin' });
+
+      if (res.status === 401) {
+        // Not logged in at all — go to login page with no error message
+        window.location.href = '/login.html';
+        return;
+      }
+
+      const data = await res.json();
       if (data.authenticated && data.user) {
+        Auth.verified = true;
         const pill   = document.getElementById('user-pill');
         const avatar = document.getElementById('user-avatar');
         const name   = document.getElementById('user-name');
         if (data.user.picture) avatar.src = data.user.picture;
         name.textContent = data.user.name || data.user.email || '';
         pill.style.display = 'flex';
+      } else {
+        window.location.href = '/login.html';
       }
     } catch (err) {
-      // 401 means not authenticated — redirect to login
-      if (err.message?.includes('401') || err.message?.includes('Not authenticated')) {
-        window.location.href = '/login.html?error=session_expired';
-      }
+      // Network error — don't redirect, let the user see the app attempt
+      console.warn('Auth check failed (network?):', err.message);
     }
   },
 };

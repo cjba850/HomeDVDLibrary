@@ -487,6 +487,16 @@ html, body {
   <h1>🎬 DVD Library</h1>
   <div id="header-right">
     <span id="movie-count-badge" style="font-size:.78rem;color:var(--muted)"></span>
+    <!-- User pill — populated by Auth.init() -->
+    <div id="user-pill" style="display:none;align-items:center;gap:7px;background:var(--bg-card);border:1px solid var(--border);border-radius:99px;padding:3px 10px 3px 4px;font-size:.78rem">
+      <img id="user-avatar" src="" alt="" width="24" height="24"
+           style="border-radius:50%;display:block" onerror="this.style.display='none'">
+      <span id="user-name" style="color:var(--muted);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+      <a href="/auth/logout" title="Sign out"
+         style="color:var(--muted);font-size:.9rem;margin-left:2px;text-decoration:none">
+        <i class="bi bi-box-arrow-right"></i>
+      </a>
+    </div>
     <button class="btn-accent" style="padding:7px 14px;font-size:.85rem" onclick="App.showAddForm()">
       <i class="bi bi-plus-lg"></i> Add
     </button>
@@ -960,6 +970,11 @@ async function apiCall(path, opts = {}) {
     headers: { 'Content-Type': 'application/json' },
     ...opts,
   });
+  if (res.status === 401) {
+    // Session expired or not authenticated — bounce to login
+    window.location.href = '/login.html?error=session_expired';
+    throw new Error('Not authenticated');
+  }
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -2212,9 +2227,34 @@ const Batch = {
 };
 
 // ════════════════════════════════════════════════
+// AUTH
+// ════════════════════════════════════════════════
+const Auth = {
+  async init() {
+    try {
+      const data = await apiCall('/auth/me');
+      if (data.authenticated && data.user) {
+        const pill   = document.getElementById('user-pill');
+        const avatar = document.getElementById('user-avatar');
+        const name   = document.getElementById('user-name');
+        if (data.user.picture) avatar.src = data.user.picture;
+        name.textContent = data.user.name || data.user.email || '';
+        pill.style.display = 'flex';
+      }
+    } catch (err) {
+      // 401 means not authenticated — redirect to login
+      if (err.message?.includes('401') || err.message?.includes('Not authenticated')) {
+        window.location.href = '/login.html?error=session_expired';
+      }
+    }
+  },
+};
+
+// ════════════════════════════════════════════════
 // INIT
 // ════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
+  Auth.init();
   Library.reload();
 
   // Enter key shortcuts

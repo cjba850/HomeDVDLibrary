@@ -324,3 +324,162 @@ dvd-library/
 **DB connection refused** → `docker compose logs db` to check MariaDB status. The backend waits for the DB healthcheck before starting.
 
 **Images stretched in card view** → Fixed in current version. Posters use `object-fit: cover; object-position: center top` with a locked `aspect-ratio: 2/3`.
+
+---
+
+## Google SSO Setup — Step-by-Step
+
+This section walks through creating OAuth 2.0 credentials in Google Cloud Console
+and configuring them for your DVD Library instance.
+
+---
+
+### Step 1 — Create a Google Cloud Project
+
+1. Go to **https://console.cloud.google.com/**
+2. Click the project selector (top-left) → **New Project**
+3. Name it something like `DVD Library` → **Create**
+4. Make sure the new project is selected in the dropdown before continuing
+
+---
+
+### Step 2 — Configure the OAuth Consent Screen
+
+This is the screen users see when signing in.
+
+1. In the left menu go to **APIs & Services → OAuth consent screen**
+2. Choose **Internal** (only users in your Google Workspace org can sign in)
+   > If you want to allow specific external Gmail accounts too, choose **External**,
+   > but you will need to add them to an allowlist — see Step 5.
+3. Click **Create**
+4. Fill in the required fields:
+   - **App name:** `DVD Library`
+   - **User support email:** your admin email
+   - **Developer contact:** your email
+5. Click **Save and Continue** through the Scopes and Test Users screens
+   (no changes needed — the defaults are fine for internal use)
+6. Click **Back to Dashboard**
+
+---
+
+### Step 3 — Create OAuth 2.0 Credentials
+
+1. Go to **APIs & Services → Credentials**
+2. Click **+ Create Credentials → OAuth client ID**
+3. Application type: **Web application**
+4. Name: `DVD Library Web`
+5. Under **Authorised redirect URIs**, click **+ Add URI** and enter:
+   ```
+   https://dvd.yourdomain.com/auth/google/callback
+   ```
+   > Replace `dvd.yourdomain.com` with your actual domain.
+   > If testing locally, also add: `http://localhost:3000/auth/google/callback`
+6. Click **Create**
+7. A dialog shows your credentials — copy both values:
+   - **Client ID** (ends in `.apps.googleusercontent.com`)
+   - **Client Secret**
+
+   > Keep the Client Secret private — never commit it to git.
+
+---
+
+### Step 4 — Configure Your `.env` File
+
+Open `/etc/dvd-library/env` (service install) or `backend/.env` (manual) and set:
+
+```ini
+# Paste the values from Step 3
+GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxx
+
+# The public HTTPS URL of your app — must match the redirect URI in Step 3
+APP_URL=https://dvd.yourdomain.com
+
+# Allow anyone from your Google Workspace domain to sign in
+ALLOWED_DOMAIN=yourdomain.com
+
+# Or restrict to specific emails (comma-separated, can combine with ALLOWED_DOMAIN)
+ALLOWED_EMAILS=alice@yourdomain.com,bob@gmail.com
+
+# Generate a random secret:
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+SESSION_SECRET=paste_your_generated_secret_here
+```
+
+---
+
+### Step 5 — Access Control Options
+
+| Scenario | Config |
+|----------|--------|
+| All staff on `company.com` | `ALLOWED_DOMAIN=company.com` |
+| Specific people only | `ALLOWED_EMAILS=alice@company.com,bob@gmail.com` |
+| Both (domain + extra) | Set both — either rule grants access |
+| Any Google account (open) | Leave both blank |
+
+When a user tries to sign in with an account that doesn't match, they see
+an "Access denied" error on the login page and are **not** let through.
+
+---
+
+### Step 6 — Run the Database Migration
+
+If your database already exists, add the auth tables:
+
+```bash
+mysql -u dvdlib -p dvdlibrary < scripts/migrate-add-auth.sql
+```
+
+---
+
+### Step 7 — Restart the Service
+
+```bash
+# Docker
+docker compose down && docker compose up -d
+
+# Systemd
+sudo systemctl restart dvd-library
+```
+
+Open `https://dvd.yourdomain.com` — you should be redirected to the sign-in
+page. Click **Sign in with Google**, complete the Google consent flow,
+and land back on the library.
+
+---
+
+### Step 8 — Verify HTTPS (required for production)
+
+Google OAuth **requires HTTPS** for the callback URL in production.
+The nginx config in this README's earlier section covers that.
+For quick local testing, `http://localhost:3000` is fine without HTTPS.
+
+---
+
+### Troubleshooting SSO
+
+| Symptom | Fix |
+|---------|-----|
+| `redirect_uri_mismatch` error | The redirect URI in Google Console doesn't exactly match `APP_URL + /auth/google/callback`. Check for trailing slashes, http vs https. |
+| "Access denied" on sign-in | The signed-in email doesn't match `ALLOWED_DOMAIN` or `ALLOWED_EMAILS`. Check the values in your `.env`. |
+| `sso_not_configured` on login page | `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_SECRET` is missing from `.env`. |
+| Redirect loop after sign-in | `SESSION_SECRET` may be wrong or missing. Regenerate and restart. |
+| Session lost on restart (non-Docker) | Check MariaDB is running and the `sessions` table exists. Run `migrate-add-auth.sql`. |
+| Google shows "This app isn't verified" | You chose **External** consent screen. Add test users in Google Console or publish the app. For internal/workspace use, choose **Internal** instead. |
+
+---
+
+### Who Has Signed In?
+
+The `auth_users` table logs every successful sign-in. You can query it:
+
+```sql
+SELECT email, name, loginCount, firstLogin, lastLogin
+FROM auth_users ORDER BY lastLogin DESC;
+```
+
+Or call the API (must be signed in):
+
+```
+GET /api/auth/users
+```

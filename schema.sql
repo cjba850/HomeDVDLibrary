@@ -88,3 +88,32 @@ CREATE TABLE IF NOT EXISTS `loan_history` (
   CONSTRAINT `fk_lh_movie` FOREIGN KEY (`movieId`)
     REFERENCES `movies` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Auth: session store + authorised users log
+-- ============================================================
+
+-- express-mysql-session creates this automatically, but defining it
+-- here ensures it exists with the right charset before first run.
+CREATE TABLE IF NOT EXISTS `sessions` (
+  `session_id`  VARCHAR(128) NOT NULL,
+  `expires`     INT(11) UNSIGNED NOT NULL,
+  `data`        MEDIUMTEXT,
+  PRIMARY KEY (`session_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Tracks every Google account that has successfully signed in.
+-- Used for audit logging; access control is done via ALLOWED_DOMAIN / ALLOWED_EMAILS in .env.
+CREATE TABLE IF NOT EXISTS `auth_users` (
+  `id`          INT NOT NULL AUTO_INCREMENT,
+  `googleId`    VARCHAR(128) NOT NULL,
+  `email`       VARCHAR(255) NOT NULL,
+  `name`        VARCHAR(255) NOT NULL DEFAULT '',
+  `picture`     VARCHAR(500) NOT NULL DEFAULT '',
+  `lastLogin`   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `firstLogin`  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `loginCount`  INT NOT NULL DEFAULT 1,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_googleId` (`googleId`),
+  UNIQUE KEY `uq_email`    (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

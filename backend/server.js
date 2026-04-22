@@ -1,34 +1,183 @@
 'use strict';
 
 // Load .env if running locally (ignored in Docker where env is injected)
-try { require('dotenv').config(); } catch (_) {}
+require('dotenv').config();
 
-const express = require('express');
-const mysql   = require('mysql2/promise');
-const cors    = require('cors');
-const axios   = require('axios');
-const path    = require('path');
+const express        = require('express');
+const mysql          = require('mysql2/promise');
+const cors           = require('cors');
+const axios          = require('axios');
+const path           = require('path');
+const session        = require('express-session');
+const MySQLStore     = require('express-mysql-session')(session);
+const passport       = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// ── DB Connection Pool ────────────────────────────────────────────────────────
+// (defined early so the session store can reuse the same config)
+const dbConfig = {
+  host:     process.env.DB_HOST || 'localhost',
+  port:     parseInt(process.env.DB_PORT || '3306'),
+  user:     process.env.DB_USER || 'dvdlib',
+  password: process.env.DB_PASS || 'dvdlib_secret',
+  database: process.env.DB_NAME || 'dvdlibrary',
+  charset:  'utf8mb4',
+};
+const pool = mysql.createPool({
+  ...dbConfig,
+  waitForConnections: true,
+  connectionLimit:    10,
+  queueLimit:         0,
+});
+
+// ── Access-control helpers ────────────────────────────────────────────────────
+const ALLOWED_DOMAIN = (process.env.ALLOWED_DOMAIN || '').trim().toLowerCase();
+const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '')
+  .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+
+function isAllowedEmail(email) {
+  if (!email) return false;
+  const e = email.toLowerCase();
+  if (ALLOWED_EMAILS.length && ALLOWED_EMAILS.includes(e)) return true;
+  if (ALLOWED_DOMAIN && e.endsWith('@' + ALLOWED_DOMAIN)) return true;
+  // If neither filter is configured, allow any authenticated Google account
+  if (!ALLOWED_DOMAIN && !ALLOWED_EMAILS.length) return true;
+  return false;
+}
+
+// ── Session store (MariaDB) ───────────────────────────────────────────────────
+const sessionStore = new MySQLStore({
+  host:               dbConfig.host,
+  port:               dbConfig.port,
+  user:               dbConfig.user,
+  password:           dbConfig.password,
+  database:           dbConfig.database,
+  charset:            'utf8mb4',
+  createDatabaseTable: true,
+  schema: {
+    tableName:   'sessions',
+    columnNames: { session_id: 'session_id', expires: 'expires', data: 'data' },
+  },
+});
+
+// ── Passport: Google OAuth 2.0 ───────────────────────────────────────────────
+const googleConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+
+if (googleConfigured) {
+  passport.use(new GoogleStrategy({
+    clientID:     process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL:  (process.env.APP_URL || 'http://localhost:' + PORT) + '/auth/google/callback',
+    scope:        ['profile', 'email'],
+  },
+  async (accessToken, refreshToken, profile, done) => {
+    try {
+      const email   = profile.emails?.[0]?.value || '';
+      const name    = profile.displayName || '';
+      const picture = profile.photos?.[0]?.value || '';
+
+      if (!isAllowedEmail(email)) {
+        return done(null, false, {
+          message: `Access denied: ${email} is not authorised. Contact your administrator.`,
+        });
+      }
+
+      // Upsert user record for audit log
+      await pool.execute(
+        `INSERT INTO auth_users (googleId, email, name, picture, loginCount)
+         VALUES (?, ?, ?, ?, 1)
+         ON DUPLICATE KEY UPDATE
+           name = VALUES(name), picture = VALUES(picture),
+           lastLogin = NOW(), loginCount = loginCount + 1`,
+        [profile.id, email, name, picture]
+      );
+
+      return done(null, { id: profile.id, email, name, picture });
+    } catch (err) {
+      return done(err);
+    }
+  }));
+}
+
+passport.serializeUser((user, done)   => done(null, user));
+passport.deserializeUser((user, done) => done(null, user));
+
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors());
-app.use(express.json());
+// Static files served BEFORE auth so login.html and its assets are public
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use('/posters', express.static(path.join(__dirname, '../frontend/posters')));
 
-// ── DB Connection Pool ────────────────────────────────────────────────────────
-const pool = mysql.createPool({
-  host:              process.env.DB_HOST || 'localhost',
-  port:              parseInt(process.env.DB_PORT || '3306'),
-  user:              process.env.DB_USER || 'dvdlib',
-  password:          process.env.DB_PASS || 'dvdlib_secret',
-  database:          process.env.DB_NAME || 'dvdlibrary',
-  waitForConnections: true,
-  connectionLimit:   10,
-  queueLimit:        0,
-  charset:           'utf8mb4',
+app.use(cors());
+app.use(express.json());
+
+app.use(session({
+  key:               'dvdlib_session',
+  secret:            process.env.SESSION_SECRET || 'dvdlib-change-me',
+  store:             sessionStore,
+  resave:            false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge:   parseInt(process.env.SESSION_MAX_AGE || '28800000'), // 8 hours
+    httpOnly: true,
+    sameSite: 'lax',
+    // Set secure:true only when behind HTTPS (nginx / Cloudflare)
+    secure:   process.env.NODE_ENV === 'production' && process.env.APP_URL?.startsWith('https'),
+  },
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
+// ── Auth guard — applied to all /api/* routes ─────────────────────────────────
+function requireAuth(req, res, next) {
+  if (req.isAuthenticated()) return next();
+  res.status(401).json({ error: 'Not authenticated', loginUrl: '/login.html' });
+}
+
+// ── Google OAuth routes (public — no auth guard) ─────────────────────────────
+app.get('/auth/google',
+  (req, res, next) => {
+    if (!googleConfigured) {
+      return res.redirect('/login.html?error=sso_not_configured');
+    }
+    next();
+  },
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/login.html?error=access_denied' }),
+  (req, res) => res.redirect('/')
+);
+
+app.get('/auth/logout', (req, res, next) => {
+  req.logout(err => {
+    if (err) return next(err);
+    req.session.destroy(() => res.redirect('/login.html?msg=signed_out'));
+  });
+});
+
+// GET /api/auth/me — returns current user or 401
+app.get('/api/auth/me', (req, res) => {
+  if (!req.isAuthenticated()) {
+    return res.status(401).json({ authenticated: false, loginUrl: '/login.html' });
+  }
+  res.json({ authenticated: true, user: req.user });
+});
+
+// GET /api/auth/users — list all users who have ever signed in (admin view)
+app.get('/api/auth/users', requireAuth, async (req, res) => {
+  try {
+    const [rows] = await pool.execute(
+      'SELECT id, email, name, picture, firstLogin, lastLogin, loginCount FROM auth_users ORDER BY lastLogin DESC'
+    );
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -92,7 +241,7 @@ app.get('/api/health', async (req, res) => {
 // ── Movies CRUD ───────────────────────────────────────────────────────────────
 
 // GET /api/movies  — list with optional search & filters
-app.get('/api/movies', async (req, res) => {
+app.get('/api/movies', requireAuth, async (req, res) => {
   try {
     const { search, format, genre, sort = 'movieName' } = req.query;
     const allowed = ['movieName','year','dateAdded','imdbRating','pp'];
@@ -126,7 +275,7 @@ app.get('/api/movies', async (req, res) => {
 });
 
 // GET /api/movies/:id
-app.get('/api/movies/:id', async (req, res) => {
+app.get('/api/movies/:id', requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.execute('SELECT * FROM movies WHERE id = ?', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Movie not found' });
@@ -137,7 +286,7 @@ app.get('/api/movies/:id', async (req, res) => {
 });
 
 // POST /api/movies — create
-app.post('/api/movies', async (req, res) => {
+app.post('/api/movies', requireAuth, async (req, res) => {
   try {
     const d = sanitise(req.body);
     if (!d.movieName) return res.status(400).json({ error: 'movieName is required' });
@@ -162,7 +311,7 @@ app.post('/api/movies', async (req, res) => {
 });
 
 // PUT /api/movies/:id — update
-app.put('/api/movies/:id', async (req, res) => {
+app.put('/api/movies/:id', requireAuth, async (req, res) => {
   try {
     const d = sanitise(req.body);
     if (!d.movieName) return res.status(400).json({ error: 'movieName is required' });
@@ -190,7 +339,7 @@ app.put('/api/movies/:id', async (req, res) => {
 });
 
 // DELETE /api/movies/:id
-app.delete('/api/movies/:id', async (req, res) => {
+app.delete('/api/movies/:id', requireAuth, async (req, res) => {
   try {
     const [result] = await pool.execute('DELETE FROM movies WHERE id = ?', [req.params.id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Movie not found' });
@@ -202,7 +351,7 @@ app.delete('/api/movies/:id', async (req, res) => {
 
 // ── Barcode Lookup Chain ──────────────────────────────────────────────────────
 // 1. Check own DB  →  2. UPC ItemDB (free)  →  3. OMDB by title
-app.get('/api/lookup/barcode/:code', async (req, res) => {
+app.get('/api/lookup/barcode/:code', requireAuth, async (req, res) => {
   const code = req.params.code.trim();
 
   // 1. Already in library?
@@ -240,7 +389,7 @@ app.get('/api/lookup/barcode/:code', async (req, res) => {
 });
 
 // ── OMDB Lookup by IMDB ID ────────────────────────────────────────────────────
-app.get('/api/lookup/imdb/:id', async (req, res) => {
+app.get('/api/lookup/imdb/:id', requireAuth, async (req, res) => {
   try {
     const d = await omdbGet({ i: req.params.id, plot: 'full' });
     if (d.Response === 'True') {
@@ -254,7 +403,7 @@ app.get('/api/lookup/imdb/:id', async (req, res) => {
 });
 
 // ── OMDB Lookup by Title ──────────────────────────────────────────────────────
-app.get('/api/lookup/title/:title', async (req, res) => {
+app.get('/api/lookup/title/:title', requireAuth, async (req, res) => {
   try {
     const d = await omdbGet({ t: req.params.title, plot: 'full' });
     if (d.Response === 'True') {
@@ -268,7 +417,7 @@ app.get('/api/lookup/title/:title', async (req, res) => {
 });
 
 // ── OMDB Search (multiple results) ───────────────────────────────────────────
-app.get('/api/search/omdb', async (req, res) => {
+app.get('/api/search/omdb', requireAuth, async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: 'q parameter required' });
@@ -291,7 +440,7 @@ app.get('/api/search/omdb', async (req, res) => {
 //   2. SOUNDEX phonetic match        (catches typos / slight variations)
 //   3. Significant-word overlap      (catches subtitle differences, articles)
 // Each match is returned with a confidence label so the UI can grade the warning.
-app.get('/api/similar', async (req, res) => {
+app.get('/api/similar', requireAuth, async (req, res) => {
   try {
     const { title, year, imdbId, excludeId } = req.query;
     if (!title) return res.status(400).json({ error: 'title parameter required' });
@@ -406,7 +555,7 @@ app.get('/api/similar', async (req, res) => {
 });
 
 // ── Stats ────────────────────────────────────────────────────────────────────
-app.get('/api/stats', async (req, res) => {
+app.get('/api/stats', requireAuth, async (req, res) => {
   try {
     const [[{ total }]]    = await pool.execute('SELECT COUNT(*) AS total FROM movies');
     const [formats]        = await pool.execute('SELECT format, COUNT(*) AS count FROM movies GROUP BY format ORDER BY count DESC');
@@ -434,7 +583,7 @@ app.get('/api/stats', async (req, res) => {
 
 
 // ── Filter Options (for dropdowns) ───────────────────────────────────────────
-app.get('/api/filters', async (req, res) => {
+app.get('/api/filters', requireAuth, async (req, res) => {
   try {
     // Distinct age ratings
     const [ratings] = await pool.execute(
@@ -474,7 +623,7 @@ app.get('/api/filters', async (req, res) => {
 // ════════════════════════════════════════════════════════════════════════════
 
 // GET /api/loans  — all currently on-loan movies, optional ?person= filter
-app.get('/api/loans', async (req, res) => {
+app.get('/api/loans', requireAuth, async (req, res) => {
   try {
     const { person } = req.query;
     let sql = `
@@ -494,7 +643,7 @@ app.get('/api/loans', async (req, res) => {
 });
 
 // GET /api/loans/people  — distinct borrower names (for autocomplete)
-app.get('/api/loans/people', async (req, res) => {
+app.get('/api/loans/people', requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.execute(
       "SELECT DISTINCT loanedTo AS name, COUNT(*) AS count FROM movies WHERE loanedTo != '' GROUP BY loanedTo ORDER BY loanedTo"
@@ -510,7 +659,7 @@ app.get('/api/loans/people', async (req, res) => {
 });
 
 // GET /api/loans/history/:movieId  — full loan history for one movie
-app.get('/api/loans/history/:movieId', async (req, res) => {
+app.get('/api/loans/history/:movieId', requireAuth, async (req, res) => {
   try {
     const [rows] = await pool.execute(
       'SELECT * FROM loan_history WHERE movieId = ? ORDER BY loanedDate DESC',
@@ -524,7 +673,7 @@ app.get('/api/loans/history/:movieId', async (req, res) => {
 
 // POST /api/movies/:id/loan  — lend a movie out
 // body: { loanedTo: "Alice Smith", notes: "optional" }
-app.post('/api/movies/:id/loan', async (req, res) => {
+app.post('/api/movies/:id/loan', requireAuth, async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -561,7 +710,7 @@ app.post('/api/movies/:id/loan', async (req, res) => {
 });
 
 // POST /api/movies/:id/return  — mark a movie as returned
-app.post('/api/movies/:id/return', async (req, res) => {
+app.post('/api/movies/:id/return', requireAuth, async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
@@ -601,7 +750,7 @@ app.post('/api/movies/:id/return', async (req, res) => {
 // GET /api/batch/candidates
 // Returns movies that are missing IMDB data, barcode, or poster.
 // Query params: ?limit=50&missing=imdb|barcode|poster|any (default: any)
-app.get('/api/batch/candidates', async (req, res) => {
+app.get('/api/batch/candidates', requireAuth, async (req, res) => {
   try {
     const limit   = Math.min(parseInt(req.query.limit || '200'), 500);
     const missing = req.query.missing || 'any';
@@ -626,7 +775,7 @@ app.get('/api/batch/candidates', async (req, res) => {
 // GET /api/batch/lookup/:id
 // For a single candidate movie: search OMDB by title and also run /similar check.
 // Returns the best OMDB match + any library duplicates to warn about.
-app.get('/api/batch/lookup/:id', async (req, res) => {
+app.get('/api/batch/lookup/:id', requireAuth, async (req, res) => {
   try {
     const [[movie]] = await pool.execute(
       'SELECT * FROM movies WHERE id = ?', [req.params.id]
@@ -680,7 +829,7 @@ app.get('/api/batch/lookup/:id', async (req, res) => {
 // POST /api/batch/apply
 // Apply confirmed OMDB data to a movie record.
 // body: { id, imdbId, applyFields: true (full update) | false (imdbId/barcode/poster only) }
-app.post('/api/batch/apply', async (req, res) => {
+app.post('/api/batch/apply', requireAuth, async (req, res) => {
   try {
     const { id, imdbId, barcode, applyFields = true } = req.body;
     if (!id) return res.status(400).json({ error: 'id is required' });

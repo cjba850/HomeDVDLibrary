@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+
+  # ── MariaDB ──────────────────────────────────────────────
+  db:
+    image: mariadb:10.11
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:-changeme_root}
+      MYSQL_DATABASE:      dvdlibrary
+      MYSQL_USER:          dvdlib
+      MYSQL_PASSWORD:      ${DB_PASS:-dvdlib_secret}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    ports:
+      - "3306:3306"          # remove this line if you don't need external DB access
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Backend + Frontend (Node.js) ─────────────────────────
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      DB_HOST:       db
+      DB_PORT:       3306
+      DB_USER:       dvdlib
+      DB_PASS:       ${DB_PASS:-dvdlib_secret}
+      DB_NAME:       dvdlibrary
+      OMDB_API_KEY:  ${OMDB_API_KEY:-}
+      PORT:          3000
+      NODE_ENV:      production
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./frontend:/app/frontend:ro   # live-reload frontend without rebuild
+
+volumes:
+  db_data:
+
+# ── Usage ─────────────────────────────────────────────────
+# 1. Copy .env.example to .env and fill in values
+# 2. docker compose up -d
+# 3. Open http://localhost:3000

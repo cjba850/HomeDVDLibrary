@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+// Resolve modules from backend/node_modules regardless of where the script is run from
+const path = require('path');
+process.env.NODE_PATH = path.join(__dirname, '../backend/node_modules');
+require('module').Module._initPaths();
+
 /**
  * fetch-posters.js
  * ─────────────────────────────────────────────────────────────────────────────
@@ -24,7 +29,6 @@
 
 'use strict';
 
-const path   = require('path');
 const fs     = require('fs');
 const mysql  = require('mysql2/promise');
 const axios  = require('axios');

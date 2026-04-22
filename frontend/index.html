@@ -376,6 +376,101 @@ html, body {
   border-radius: 99px; font-size: .75rem; font-weight: 600; cursor: pointer;
 }
 .filter-chip:hover { background: rgba(99,102,241,.28); }
+
+/* ═══════════════════════════════════════════════
+   DUPLICATE WARNING
+   ═══════════════════════════════════════════════ */
+.dup-warning {
+  border: 1px solid var(--warning);
+  background: rgba(245,158,11,.08);
+  border-radius: 12px; padding: 14px; margin-bottom: 14px;
+}
+.dup-warning-title {
+  color: var(--warning); font-weight: 700; font-size: .8rem;
+  letter-spacing: .04em; text-transform: uppercase; margin-bottom: 10px;
+}
+.dup-match-row {
+  display: flex; gap: 10px; align-items: center;
+  padding: 7px 8px; border-radius: 8px; cursor: pointer;
+  transition: background .15s; margin-bottom: 4px;
+}
+.dup-match-row:hover { background: rgba(255,255,255,.06); }
+.dup-thumb {
+  width: 32px; height: 46px; object-fit: cover;
+  border-radius: 4px; flex-shrink: 0;
+}
+.dup-thumb-ph {
+  width: 32px; height: 46px; border-radius: 4px; flex-shrink: 0;
+  background: var(--bg); display: flex; align-items: center;
+  justify-content: center; font-size: 1rem;
+}
+.conf-exact   { color: #ef4444; }
+.conf-high    { color: var(--warning); }
+.conf-soundex { color: #a78bfa; }
+.conf-possible{ color: var(--muted); }
+.conf-label {
+  font-size: .65rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+/* ═══════════════════════════════════════════════
+   LOANS & BATCH ENRICH
+   ═══════════════════════════════════════════════ */
+.loan-badge {
+  position: absolute; top: 6px; right: 6px;
+  background: rgba(239,68,68,.88); color: #fff;
+  font-size: .58rem; font-weight: 800; letter-spacing: .04em;
+  padding: 2px 6px; border-radius: 4px;
+  text-transform: uppercase; pointer-events: none;
+}
+.movie-card { position: relative; }
+.loan-row-badge {
+  background: rgba(239,68,68,.18); color: #fca5a5;
+  border: 1px solid rgba(239,68,68,.35);
+  font-size: .65rem; font-weight: 700; padding: 2px 8px;
+  border-radius: 99px; white-space: nowrap; text-transform: uppercase;
+}
+.person-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 14px; cursor: pointer;
+  transition: border-color .2s;
+}
+.person-chip:hover { border-color: var(--accent); }
+.person-chip-name { font-weight: 600; font-size: .9rem; }
+.person-chip-count {
+  background: var(--accent); color: #fff; font-size: .7rem;
+  font-weight: 700; border-radius: 99px; padding: 1px 7px;
+}
+/* Batch enrich */
+.enrich-card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 20px; margin-bottom: 16px;
+}
+.enrich-progress {
+  height: 6px; border-radius: 99px;
+  background: var(--border); margin-bottom: 16px; overflow: hidden;
+}
+.enrich-progress-fill {
+  height: 100%; border-radius: 99px;
+  background: linear-gradient(90deg, #6366f1, #a5b4fc);
+  transition: width .4s;
+}
+.omdb-confirm-poster {
+  width: 80px; border-radius: 8px; flex-shrink: 0;
+}
+.omdb-confirm-poster-ph {
+  width: 80px; height: 118px; border-radius: 8px; flex-shrink: 0;
+  background: var(--bg); display: flex; align-items: center;
+  justify-content: center; font-size: 2rem;
+}
+.alt-result-row {
+  display: flex; gap: 8px; align-items: center; padding: 7px 8px;
+  border-radius: 8px; cursor: pointer; border: 1px solid transparent;
+  transition: border-color .15s, background .15s; margin-bottom: 4px;
+}
+.alt-result-row:hover { background: rgba(255,255,255,.04); border-color: var(--border); }
+.alt-result-row.selected { border-color: var(--accent); background: rgba(99,102,241,.1); }
 </style>
 </head>
 <body>
@@ -673,9 +768,38 @@ html, body {
 
   <!-- ── STATS VIEW ───────────────────────────── -->
   <div id="view-stats" class="view">
-    <h5 style="margin-bottom:20px">📊 Library Statistics</h5>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+      <h5 style="margin:0">📊 Library Statistics</h5>
+      <button class="btn-accent" style="font-size:.85rem;padding:8px 14px" onclick="Batch.open()">
+        <i class="bi bi-magic"></i> Batch Enrich
+      </button>
+    </div>
     <div id="stats-body">
       <div style="text-align:center;padding:60px"><div class="spinner-border text-primary"></div></div>
+    </div>
+  </div>
+
+
+  <!-- ── LOANS VIEW ──────────────────────────────── -->
+  <div id="view-loans" class="view">
+    <h5 style="margin-bottom:4px">👥 On Loan</h5>
+    <p style="color:var(--muted);font-size:.85rem;margin-bottom:16px">Track which discs are out and who has them</p>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+      <input type="search" id="loan-search" placeholder="🔍  Search by person or title…"
+             style="flex:1;min-width:180px;background:var(--bg-card);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:9px 14px;font-size:.95rem;outline:none"
+             oninput="Loans.onSearch()">
+      <button class="btn-accent" style="white-space:nowrap" onclick="Loans.reload()">
+        <i class="bi bi-arrow-clockwise"></i> Refresh
+      </button>
+    </div>
+
+    <!-- People summary chips -->
+    <div id="loan-people-area" style="margin-bottom:16px"></div>
+
+    <!-- Loan list -->
+    <div id="loan-list-area">
+      <div style="text-align:center;padding:40px"><div class="spinner-border text-primary"></div></div>
     </div>
   </div>
 
@@ -693,6 +817,9 @@ html, body {
   </button>
   <button class="nav-btn" id="nav-form" onclick="App.showAddForm()">
     <i class="bi bi-plus-circle-fill"></i><span>Add</span>
+  </button>
+  <button class="nav-btn" id="nav-loans" onclick="App.showView('loans')">
+    <i class="bi bi-person-lines-fill"></i><span>Loans</span>
   </button>
   <button class="nav-btn" id="nav-stats" onclick="App.showView('stats')">
     <i class="bi bi-bar-chart-line-fill"></i><span>Stats</span>
@@ -713,6 +840,53 @@ html, body {
       <div class="modal-footer" style="border-color:var(--border)">
         <button class="btn btn-outline-primary" onclick="Detail.edit()"><i class="bi bi-pencil"></i> Edit</button>
         <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Loan Out Modal -->
+<div class="modal fade" id="modal-loan" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="border-color:var(--border)">
+        <h5 class="modal-title"><i class="bi bi-person-fill-up"></i> Loan Out</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="loan-movie-title" style="font-weight:600;margin-bottom:16px;font-size:1rem"></div>
+        <label class="form-label">Borrower Name *</label>
+        <input id="loan-person-input" class="form-control mb-2" placeholder="e.g. John Smith"
+               list="loan-people-list"
+               onkeydown="if(event.key==='Enter')Loans.confirmLoan()">
+        <datalist id="loan-people-list"></datalist>
+        <label class="form-label">Notes (optional)</label>
+        <input id="loan-notes-input" class="form-control" placeholder="e.g. Lent at party, return by Xmas">
+      </div>
+      <div class="modal-footer" style="border-color:var(--border)">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn-accent" onclick="Loans.confirmLoan()">
+          <i class="bi bi-person-fill-up"></i> Loan Out
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Batch Enrich Modal -->
+<div class="modal fade" id="modal-batch" tabindex="-1" data-bs-backdrop="static">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="border-color:var(--border)">
+        <h5 class="modal-title">🔄 Batch Enrich</h5>
+        <button type="button" class="btn-close btn-close-white" onclick="Batch.stop()" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="batch-modal-body">
+        <!-- filled by Batch.start() -->
+      </div>
+      <div class="modal-footer" style="border-color:var(--border)" id="batch-modal-footer">
+        <button class="btn btn-secondary" onclick="Batch.stop()" data-bs-dismiss="modal">Stop</button>
       </div>
     </div>
   </div>
@@ -811,6 +985,7 @@ const App = {
 
     if (name === 'library') Library.reload();
     if (name === 'stats')   Stats.load();
+    if (name === 'loans')   Loans.reload();
     if (name === 'scanner') {
       document.getElementById('scan-result-area').innerHTML = '';
       document.getElementById('manual-barcode').value = '';
@@ -1056,8 +1231,146 @@ const Library = {
   },
 };
 
+
+// ════════════════════════════════════════════════
+// DUPLICATE CHECKER
+// Shared utility — called from Scanner and Form
+// ════════════════════════════════════════════════
+const DupChecker = {
+  // Returns HTML string for a warning block, or '' if no matches.
+  // onViewId  — JS expression called with match id when user clicks "View"
+  // onAddAnyway — JS expression called when user dismisses warning
+  async check(title, { year = '', imdbId = '', excludeId = null } = {}) {
+    if (!title) return { html: '', matches: [] };
+    try {
+      const params = new URLSearchParams({ title });
+      if (year)      params.set('year',      year);
+      if (imdbId)    params.set('imdbId',    imdbId);
+      if (excludeId) params.set('excludeId', excludeId);
+      const r = await apiCall('/similar?' + params.toString());
+      if (!r.count) return { html: '', matches: [] };
+      return { html: this.buildHtml(r.matches), matches: r.matches };
+    } catch (_) {
+      return { html: '', matches: [] };
+    }
+  },
+
+  confLabel(c) {
+    const map = {
+      exact:    ['Exact match',    'conf-exact'],
+      imdbId:   ['Same IMDB ID',   'conf-exact'],
+      high:     ['Very similar',   'conf-high'],
+      soundex:  ['Sounds alike',   'conf-soundex'],
+      possible: ['Possible match', 'conf-possible'],
+    };
+    return map[c] || ['Similar', 'conf-possible'];
+  },
+
+  buildHtml(matches) {
+    const rows = matches.map(m => {
+      const src = m.localPoster || m.coverImage || '';
+      const thumb = src
+        ? `<img class="dup-thumb" src="${h(src)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="dup-thumb-ph" style="display:none">🎬</div>`
+        : `<div class="dup-thumb-ph">🎬</div>`;
+      const [label, cls] = this.confLabel(m.confidence);
+      return `<div class="dup-match-row" onclick="Detail.showFromId(${m.id})">
+        ${thumb}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(m.movieName)}</div>
+          <div style="font-size:.74rem;color:var(--muted)">${h(m.year||'')}${m.director ? ' · '+h(m.director) : ''}${m.format ? ' · '+h(m.format) : ''}</div>
+        </div>
+        <span class="conf-label ${cls}">${label}</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="dup-warning" id="dup-warning-block">
+      <div class="dup-warning-title">⚠ Possible duplicate${matches.length > 1 ? 's' : ''} already in your library</div>
+      ${rows}
+      <div style="margin-top:10px;display:flex;justify-content:flex-end">
+        <button onclick="DupChecker.dismiss()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:7px;cursor:pointer;font-size:.78rem">
+          Not a duplicate — continue anyway
+        </button>
+      </div>
+    </div>`;
+  },
+
+  dismiss() {
+    const el = document.getElementById('dup-warning-block');
+    if (el) el.remove();
+  },
+};
+
 // ════════════════════════════════════════════════
 // SCANNER
+
+
+// ════════════════════════════════════════════════
+// DUPLICATE CHECKER
+// Shared utility — called from Scanner and Form
+// ════════════════════════════════════════════════
+const DupChecker = {
+  // Returns HTML string for a warning block, or '' if no matches.
+  // onViewId  — JS expression called with match id when user clicks "View"
+  // onAddAnyway — JS expression called when user dismisses warning
+  async check(title, { year = '', imdbId = '', excludeId = null } = {}) {
+    if (!title) return { html: '', matches: [] };
+    try {
+      const params = new URLSearchParams({ title });
+      if (year)      params.set('year',      year);
+      if (imdbId)    params.set('imdbId',    imdbId);
+      if (excludeId) params.set('excludeId', excludeId);
+      const r = await apiCall('/similar?' + params.toString());
+      if (!r.count) return { html: '', matches: [] };
+      return { html: this.buildHtml(r.matches), matches: r.matches };
+    } catch (_) {
+      return { html: '', matches: [] };
+    }
+  },
+
+  confLabel(c) {
+    const map = {
+      exact:    ['Exact match',    'conf-exact'],
+      imdbId:   ['Same IMDB ID',   'conf-exact'],
+      high:     ['Very similar',   'conf-high'],
+      soundex:  ['Sounds alike',   'conf-soundex'],
+      possible: ['Possible match', 'conf-possible'],
+    };
+    return map[c] || ['Similar', 'conf-possible'];
+  },
+
+  buildHtml(matches) {
+    const rows = matches.map(m => {
+      const src = m.localPoster || m.coverImage || '';
+      const thumb = src
+        ? `<img class="dup-thumb" src="${h(src)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="dup-thumb-ph" style="display:none">🎬</div>`
+        : `<div class="dup-thumb-ph">🎬</div>`;
+      const [label, cls] = this.confLabel(m.confidence);
+      return `<div class="dup-match-row" onclick="Detail.showFromId(${m.id})">
+        ${thumb}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(m.movieName)}</div>
+          <div style="font-size:.74rem;color:var(--muted)">${h(m.year||'')}${m.director ? ' · '+h(m.director) : ''}${m.format ? ' · '+h(m.format) : ''}</div>
+        </div>
+        <span class="conf-label ${cls}">${label}</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="dup-warning" id="dup-warning-block">
+      <div class="dup-warning-title">⚠ Possible duplicate${matches.length > 1 ? 's' : ''} already in your library</div>
+      ${rows}
+      <div style="margin-top:10px;display:flex;justify-content:flex-end">
+        <button onclick="DupChecker.dismiss()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:7px;cursor:pointer;font-size:.78rem">
+          Not a duplicate — continue anyway
+        </button>
+      </div>
+    </div>`;
+  },
+
+  dismiss() {
+    const el = document.getElementById('dup-warning-block');
+    if (el) el.remove();
+  },
+};
 
 // ════════════════════════════════════════════════
 // SCANNER
@@ -1125,7 +1438,7 @@ const Scanner = {
       area.innerHTML = `
         <div class="card-panel">
           <div style="display:flex;gap:12px;align-items:center">
-            ${m.coverImage ? `<img src="${h(m.coverImage)}" style="width:55px;border-radius:7px" alt="">` : '<div style="width:55px;height:80px;background:var(--bg);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:1.5rem">🎬</div>'}
+            ${m.localPoster||m.coverImage ? `<img src="${h(m.localPoster||m.coverImage)}" style="width:55px;border-radius:7px" alt="">` : '<div style="width:55px;height:80px;background:var(--bg);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:1.5rem">🎬</div>'}
             <div>
               <div style="font-size:.72rem;color:var(--success);font-weight:700;margin-bottom:4px">✓ Already in Your Library</div>
               <div style="font-weight:600">${h(m.movieName)}</div>
@@ -1136,9 +1449,11 @@ const Scanner = {
         </div>`;
     } else if (result.found) {
       const m = result.movie;
+      // Render the "Found Online" card first, then async-inject duplicate warning
       area.innerHTML = `
         <div class="card-panel">
           <div style="font-size:.72rem;color:var(--accent);font-weight:700;margin-bottom:10px">✦ Found Online</div>
+          <div id="scan-dup-area"></div>
           <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
             ${m.coverImage ? `<img src="${h(m.coverImage)}" style="width:55px;border-radius:7px" alt="">` : '<div style="width:55px;height:80px;background:var(--bg);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:1.5rem">🎬</div>'}
             <div>
@@ -1151,6 +1466,11 @@ const Scanner = {
             <i class="bi bi-plus-lg"></i> Add to Library
           </button>
         </div>`;
+      // Check for duplicates in background and inject warning if found
+      DupChecker.check(m.movieName, { year: m.year, imdbId: m.imdbId }).then(({ html }) => {
+        const dupArea = document.getElementById('scan-dup-area');
+        if (dupArea && html) dupArea.innerHTML = html;
+      });
     } else {
       area.innerHTML = `
         <div class="card-panel">
@@ -1206,6 +1526,27 @@ const Form = {
     e.preventDefault();
     const data = this.getData();
     if (!data.movieName) { toast('Movie title is required', 'danger'); return; }
+
+    // If adding (not editing), run a dup check before saving unless already dismissed
+    if (!S.editingId && !document.getElementById('dup-warning-block') === false) {
+      // dup warning already dismissed — proceed
+    } else if (!S.editingId) {
+      const { html } = await DupChecker.check(data.movieName, { year: data.year, imdbId: data.imdbId });
+      if (html) {
+        // Inject warning above the save button and abort save
+        const existingWarn = document.getElementById('form-dup-area');
+        if (existingWarn) existingWarn.innerHTML = html;
+        else {
+          const btn = document.getElementById('btn-save');
+          const wrap = document.createElement('div');
+          wrap.id = 'form-dup-area';
+          wrap.innerHTML = html;
+          btn.parentElement.insertBefore(wrap, btn.parentElement.firstChild);
+        }
+        toast('Possible duplicate found — review before saving', 'warning');
+        return; // don't save yet — user must dismiss or it won't match next time
+      }
+    }
 
     const btn = document.getElementById('btn-save');
     btn.disabled = true;
@@ -1280,9 +1621,19 @@ const Form = {
       const r = await apiCall('/lookup/imdb/' + encodeURIComponent(imdbId));
       if (r.found) {
         this.populate(r.movie);
-        document.getElementById('omdb-results').innerHTML =
-          '<p style="color:var(--success);font-size:.85rem">✓ Form filled from OMDB</p>';
-        setTimeout(() => { document.getElementById('omdb-results').innerHTML = ''; }, 3000);
+        // Check for duplicates, excluding the record currently being edited
+        const { html, matches } = await DupChecker.check(
+          r.movie.movieName,
+          { year: r.movie.year, imdbId: r.movie.imdbId, excludeId: S.editingId }
+        );
+        if (html) {
+          document.getElementById('omdb-results').innerHTML =
+            html + '<p style="color:var(--success);font-size:.82rem;margin-top:8px">✓ Form filled from OMDB — review possible duplicates above</p>';
+        } else {
+          document.getElementById('omdb-results').innerHTML =
+            '<p style="color:var(--success);font-size:.85rem">✓ Form filled from OMDB — no duplicates found</p>';
+          setTimeout(() => { document.getElementById('omdb-results').innerHTML = ''; }, 3000);
+        }
       }
     } catch (err) {
       toast(err.message, 'danger');
@@ -1295,6 +1646,18 @@ const Form = {
 // ════════════════════════════════════════════════
 const Detail = {
   modal: null,
+
+  async showFromId(id) {
+    // Called from duplicate warning rows — movie may not be in current S.movies filter
+    try {
+      const m = await apiCall('/movies/' + id);
+      S.detailId = id;
+      document.getElementById('detail-modal-title').textContent = m.movieName;
+      document.getElementById('detail-modal-body').innerHTML = this.buildHtml(m);
+      if (!this.modal) this.modal = new bootstrap.Modal(document.getElementById('modal-detail'));
+      this.modal.show();
+    } catch (_) {}
+  },
 
   show(id) {
     const m = S.movies.find(x => x.id === id);
@@ -1328,9 +1691,23 @@ const Detail = {
       m.pp        && ['Paid',     h(m.pp)],
       m.pop       && ['Purchased At', h(m.pop)],
       m.barcode   && ['Barcode',  `<code>${h(m.barcode)}</code>`],
+      m.loanedTo  && ['On Loan To', `<span style="color:#fca5a5;font-weight:600">${h(m.loanedTo)}</span>`],
+      m.loanedDate&& ['Since',    new Date(m.loanedDate).toLocaleDateString()],
     ].filter(Boolean);
 
+    const loanBtn = m.loanedTo
+      ? `<button class="btn btn-outline-warning btn-sm" onclick="Loans.openReturn(${m.id}, '${h(m.movieName).replace(/'/g,"\\'").replace(/"/g,'&quot;')}', '${h(m.loanedTo)}')">
+           <i class="bi bi-person-fill-down"></i> Mark Returned
+         </button>`
+      : `<button class="btn btn-outline-success btn-sm" onclick="Loans.openLoan(${m.id}, '${h(m.movieName).replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
+           <i class="bi bi-person-fill-up"></i> Loan Out
+         </button>`;
+
     return `
+      ${m.loanedTo ? `<div style="background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:.85rem">
+        <i class="bi bi-exclamation-circle-fill" style="color:#fca5a5"></i>
+        Currently on loan to <strong>${h(m.loanedTo)}</strong> since ${new Date(m.loanedDate).toLocaleDateString()}
+      </div>` : ''}
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">
         ${posterEl}
         <div style="flex:1;min-width:160px">
@@ -1343,7 +1720,12 @@ const Detail = {
       </div>
       ${m.actors ? `<div style="margin-bottom:12px"><span style="color:var(--muted);font-size:.8rem">Cast</span><div style="font-size:.88rem;margin-top:4px">${h(m.actors)}</div></div>` : ''}
       ${m.plot   ? `<div style="background:rgba(255,255,255,.04);border-radius:10px;padding:14px;margin-bottom:12px;font-size:.88rem;line-height:1.6">${h(m.plot)}</div>` : ''}
-      ${m.comments ? `<div><span style="color:var(--muted);font-size:.8rem">Notes</span><div style="font-size:.85rem;margin-top:4px;font-style:italic">${h(m.comments)}</div></div>` : ''}`;
+      ${m.comments ? `<div style="margin-bottom:14px"><span style="color:var(--muted);font-size:.8rem">Notes</span><div style="font-size:.85rem;margin-top:4px;font-style:italic">${h(m.comments)}</div></div>` : ''}
+      <div style="padding-top:4px;border-top:1px solid var(--border);margin-top:8px">${loanBtn}
+        <button class="btn btn-outline-secondary btn-sm ms-2" onclick="Loans.showHistory(${m.id}, '${h(m.movieName).replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
+          <i class="bi bi-clock-history"></i> Loan History
+        </button>
+      </div>`;
   },
 
   edit() {
@@ -1431,6 +1813,466 @@ const Stats = {
           </div>
         </div>` : ''}
       </div>`;
+  },
+};
+
+
+// ════════════════════════════════════════════════
+// LOANS
+// ════════════════════════════════════════════════
+const Loans = {
+  loanModal:    null,
+  historyModal: null,
+  pendingLoanId: null,
+  searchTimer:  null,
+
+  async reload() {
+    document.getElementById('loan-list-area').innerHTML =
+      '<div style="text-align:center;padding:40px"><div class="spinner-border text-primary"></div></div>';
+    try {
+      const search  = document.getElementById('loan-search')?.value || '';
+      const [items, peopleData] = await Promise.all([
+        apiCall('/loans' + (search ? '?person=' + encodeURIComponent(search) : '')),
+        apiCall('/loans/people'),
+      ]);
+      this.renderPeople(peopleData, search);
+      this.renderList(items, search);
+    } catch (e) {
+      document.getElementById('loan-list-area').innerHTML =
+        `<p style="color:var(--danger)">${h(e.message)}</p>`;
+    }
+  },
+
+  onSearch() {
+    clearTimeout(this.searchTimer);
+    this.searchTimer = setTimeout(() => this.reload(), 350);
+  },
+
+  renderPeople(data, activeSearch) {
+    const area = document.getElementById('loan-people-area');
+    if (!data.current?.length) { area.innerHTML = ''; return; }
+    area.innerHTML = `
+      <div style="font-size:.75rem;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Currently Borrowing</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        ${data.current.map(p => `
+          <div class="person-chip ${activeSearch === p.name ? 'border-accent' : ''}"
+               onclick="Loans.filterByPerson('${h(p.name)}')">
+            <i class="bi bi-person-fill" style="color:var(--muted)"></i>
+            <span class="person-chip-name">${h(p.name)}</span>
+            <span class="person-chip-count">${p.count}</span>
+          </div>`).join('')}
+      </div>`;
+  },
+
+  filterByPerson(name) {
+    document.getElementById('loan-search').value = name;
+    this.reload();
+  },
+
+  renderList(items, search) {
+    const area = document.getElementById('loan-list-area');
+    if (!items.length) {
+      area.innerHTML = `<div class="empty-state">
+        <i class="bi bi-person-check" style="font-size:3rem;opacity:.2;display:block;margin-bottom:12px"></i>
+        <h6>${search ? 'No loans matching "' + h(search) + '"' : 'No items currently on loan'}</h6>
+        <p style="color:var(--muted);font-size:.85rem">Loan a disc from its detail view</p>
+      </div>`;
+      return;
+    }
+    area.innerHTML = items.map(m => {
+      const src = m.localPoster || m.coverImage || '';
+      const thumb = src
+        ? `<img style="width:44px;height:64px;object-fit:cover;border-radius:6px;flex-shrink:0" src="${h(src)}" alt="" loading="lazy">`
+        : `<div style="width:44px;height:64px;border-radius:6px;flex-shrink:0;background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:1.3rem">🎬</div>`;
+      const since = m.loanedDate ? new Date(m.loanedDate).toLocaleDateString() : '';
+      const days  = m.loanedDate
+        ? Math.floor((Date.now() - new Date(m.loanedDate)) / 86400000)
+        : 0;
+      const daysColor = days > 30 ? '#ef4444' : days > 14 ? '#f59e0b' : 'var(--muted)';
+      return `<div class="movie-list-item">
+        <div onclick="Detail.showFromId(${m.id})" style="display:flex;gap:12px;align-items:center;flex:1;min-width:0;cursor:pointer">
+          ${thumb}
+          <div style="flex:1;min-width:0">
+            <div class="movie-list-title">${h(m.movieName)}</div>
+            <div class="movie-list-sub">${h(m.year||'')} · ${h(m.format||'')}</div>
+            <div style="font-size:.78rem;margin-top:3px">
+              <i class="bi bi-person-fill" style="color:var(--accent)"></i>
+              <strong>${h(m.loanedTo)}</strong>
+              <span style="color:${daysColor};margin-left:6px">
+                ${since} · ${days}d ago
+              </span>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-outline-success btn-sm" style="flex-shrink:0"
+                onclick="Loans.openReturn(${m.id}, '${h(m.movieName).replace(/'/g,"\\'").replace(/"/g,'&quot;')}', '${h(m.loanedTo).replace(/'/g,"\\'").replace(/"/g,'&quot;')}')">
+          <i class="bi bi-person-fill-down"></i> Return
+        </button>
+      </div>`;
+    }).join('');
+  },
+
+  // ── Open loan-out dialog ──────────────────────────────────────────────────
+  async openLoan(movieId, movieName) {
+    this.pendingLoanId = movieId;
+    document.getElementById('loan-movie-title').textContent = '📀 ' + movieName;
+    document.getElementById('loan-person-input').value = '';
+    document.getElementById('loan-notes-input').value = '';
+    // Populate autocomplete from known borrowers
+    try {
+      const d = await apiCall('/loans/people');
+      const all = [...(d.current || []).map(p => p.name), ...(d.past || [])];
+      document.getElementById('loan-people-list').innerHTML =
+        all.map(n => `<option value="${h(n)}">`).join('');
+    } catch (_) {}
+    if (!this.loanModal) this.loanModal = new bootstrap.Modal(document.getElementById('modal-loan'));
+    this.loanModal.show();
+    setTimeout(() => document.getElementById('loan-person-input').focus(), 400);
+  },
+
+  async confirmLoan() {
+    const name  = document.getElementById('loan-person-input').value.trim();
+    const notes = document.getElementById('loan-notes-input').value.trim();
+    if (!name) { toast('Please enter a borrower name', 'warning'); return; }
+    try {
+      const r = await apiCall('/movies/' + this.pendingLoanId + '/loan', {
+        method: 'POST', body: JSON.stringify({ loanedTo: name, notes }),
+      });
+      toast('✓ ' + r.message, 'success');
+      this.loanModal.hide();
+      // Close detail modal if open and refresh
+      const dm = bootstrap.Modal.getInstance(document.getElementById('modal-detail'));
+      if (dm) dm.hide();
+      Library.reload();
+    } catch (e) {
+      toast(e.message, 'danger');
+    }
+  },
+
+  // ── Open return confirmation ──────────────────────────────────────────────
+  openReturn(movieId, movieName, borrower) {
+    const confirmModal = new bootstrap.Modal(document.getElementById('modal-confirm-delete'));
+    document.querySelector('#modal-confirm-delete .modal-title').textContent = 'Mark as Returned';
+    document.querySelector('#modal-confirm-delete .modal-body').textContent =
+      `Mark "${movieName}" as returned from ${borrower}?`;
+    confirmModal.show();
+    document.getElementById('confirm-delete-ok').className = 'btn btn-success';
+    document.getElementById('confirm-delete-ok').textContent = 'Mark Returned';
+    document.getElementById('confirm-delete-ok').onclick = async () => {
+      confirmModal.hide();
+      try {
+        const r = await apiCall('/movies/' + movieId + '/return', { method: 'POST' });
+        toast('✓ ' + r.message, 'success');
+        const dm = bootstrap.Modal.getInstance(document.getElementById('modal-detail'));
+        if (dm) dm.hide();
+        Library.reload();
+        if (App.currentView === 'loans') Loans.reload();
+      } catch (e) {
+        toast(e.message, 'danger');
+      }
+      // Reset modal button for delete use
+      document.getElementById('confirm-delete-ok').className = 'btn btn-danger';
+      document.getElementById('confirm-delete-ok').textContent = 'Delete';
+    };
+  },
+
+  // ── Loan history popup ────────────────────────────────────────────────────
+  async showHistory(movieId, movieName) {
+    try {
+      const rows = await apiCall('/loans/history/' + movieId);
+      const dm = bootstrap.Modal.getInstance(document.getElementById('modal-detail'));
+      if (dm) dm.hide();
+      const body = rows.length
+        ? `<table style="width:100%;font-size:.85rem;border-collapse:collapse">
+            <thead><tr style="color:var(--muted);text-align:left">
+              <th style="padding:6px 8px">Borrower</th>
+              <th style="padding:6px 8px">Loaned</th>
+              <th style="padding:6px 8px">Returned</th>
+              <th style="padding:6px 8px">Notes</th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(r => `<tr style="border-top:1px solid var(--border)">
+                <td style="padding:7px 8px;font-weight:600">${h(r.loanedTo)}</td>
+                <td style="padding:7px 8px">${new Date(r.loanedDate).toLocaleDateString()}</td>
+                <td style="padding:7px 8px">${r.returnedDate ? new Date(r.returnedDate).toLocaleDateString() : '<span style="color:#fca5a5">Still out</span>'}</td>
+                <td style="padding:7px 8px;color:var(--muted)">${h(r.notes||'—')}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>`
+        : '<p style="color:var(--muted)">No loan history for this title.</p>';
+
+      const modal = new bootstrap.Modal(document.getElementById('modal-confirm-delete'));
+      document.querySelector('#modal-confirm-delete .modal-title').textContent = `📋 Loan History — ${movieName}`;
+      document.querySelector('#modal-confirm-delete .modal-body').innerHTML = body;
+      document.getElementById('confirm-delete-ok').style.display = 'none';
+      modal.show();
+      modal._element.addEventListener('hidden.bs.modal', () => {
+        document.getElementById('confirm-delete-ok').style.display = '';
+      }, { once: true });
+    } catch (e) {
+      toast(e.message, 'danger');
+    }
+  },
+};
+
+
+// ════════════════════════════════════════════════
+// BATCH ENRICH
+// ════════════════════════════════════════════════
+const Batch = {
+  modal:       null,
+  candidates:  [],
+  current:     0,
+  total:       0,
+  stopped:     false,
+  skipped:     0,
+  updated:     0,
+  selectedImdbId: null,
+
+  async open() {
+    if (!this.modal) this.modal = new bootstrap.Modal(document.getElementById('modal-batch'));
+    this.stopped  = false;
+    this.current  = 0;
+    this.skipped  = 0;
+    this.updated  = 0;
+
+    document.getElementById('batch-modal-body').innerHTML = `
+      <p style="color:var(--muted);margin-bottom:20px">
+        Find movies missing IMDB data, barcodes, or posters and update them from OMDB one by one.
+      </p>
+      <div style="margin-bottom:16px">
+        <label class="form-label">What to enrich</label>
+        <select id="batch-missing-select" class="form-select">
+          <option value="any">Any missing data (IMDB ID, barcode, or poster)</option>
+          <option value="imdb">Missing IMDB ID only</option>
+          <option value="barcode">Missing barcode only</option>
+          <option value="poster">Missing poster only</option>
+        </select>
+      </div>
+      <div style="margin-bottom:20px">
+        <label class="form-label">Limit (max movies to review)</label>
+        <select id="batch-limit-select" class="form-select">
+          <option value="10">10 movies</option>
+          <option value="25">25 movies</option>
+          <option value="50" selected>50 movies</option>
+          <option value="100">100 movies</option>
+          <option value="200">All (up to 200)</option>
+        </select>
+      </div>
+      <button class="btn-accent" style="width:100%" onclick="Batch.start()">
+        <i class="bi bi-magic"></i> Start Batch Enrich
+      </button>`;
+    this.modal.show();
+  },
+
+  async start() {
+    const missing = document.getElementById('batch-missing-select')?.value || 'any';
+    const limit   = document.getElementById('batch-limit-select')?.value   || '50';
+    document.getElementById('batch-modal-body').innerHTML =
+      '<div style="text-align:center;padding:40px"><div class="spinner-border text-primary"></div><p style="margin-top:12px;color:var(--muted)">Finding candidates…</p></div>';
+    try {
+      const r = await apiCall(`/batch/candidates?missing=${missing}&limit=${limit}`);
+      this.candidates = r.candidates;
+      this.total      = r.candidates.length;
+      this.current    = 0;
+      if (!this.total) {
+        document.getElementById('batch-modal-body').innerHTML =
+          `<div style="text-align:center;padding:40px">
+            <i class="bi bi-check-circle-fill" style="font-size:3rem;color:var(--success)"></i>
+            <p style="margin-top:12px">No candidates found — your library looks complete!</p>
+          </div>`;
+        return;
+      }
+      this.nextCandidate();
+    } catch (e) {
+      document.getElementById('batch-modal-body').innerHTML =
+        `<p style="color:var(--danger)">${h(e.message)}</p>`;
+    }
+  },
+
+  async nextCandidate() {
+    if (this.stopped || this.current >= this.total) {
+      this.showSummary();
+      return;
+    }
+    const movie = this.candidates[this.current];
+    document.getElementById('batch-modal-body').innerHTML =
+      `<div class="enrich-progress"><div class="enrich-progress-fill" style="width:${Math.round(this.current/this.total*100)}%"></div></div>
+       <div style="text-align:center;padding:20px;color:var(--muted);font-size:.85rem">
+         <div class="spinner-border spinner-border-sm text-primary"></div>
+         Looking up <strong>${h(movie.movieName)}</strong>… (${this.current+1} of ${this.total})
+       </div>`;
+    try {
+      const r = await apiCall('/batch/lookup/' + movie.id);
+      this.selectedImdbId = r.omdbData?.imdbID || null;
+      this.renderConfirm(r);
+    } catch (e) {
+      this.renderError(movie, e.message);
+    }
+  },
+
+  renderConfirm(r) {
+    const { movie, omdbData, omdbResults, similar } = r;
+    const pct = Math.round(this.current / this.total * 100);
+
+    const poster  = omdbData?.Poster && omdbData.Poster !== 'N/A' ? omdbData.Poster : '';
+    const posterEl = poster
+      ? `<img class="omdb-confirm-poster" src="${h(poster)}" alt="">`
+      : `<div class="omdb-confirm-poster-ph">🎬</div>`;
+
+    const dupWarn = similar?.length
+      ? `<div class="dup-warning" style="margin-bottom:12px">
+          <div class="dup-warning-title">⚠ Similar titles already in library</div>
+          ${similar.map(s => {
+            const sp = s.localPoster || s.coverImage || '';
+            return `<div class="dup-match-row" onclick="Detail.showFromId(${s.id})">
+              ${sp ? `<img class="dup-thumb" src="${h(sp)}" alt="">` : '<div class="dup-thumb-ph">🎬</div>'}
+              <div style="flex:1;min-width:0">
+                <div style="font-size:.83rem;font-weight:600">${h(s.movieName)}</div>
+                <div style="font-size:.72rem;color:var(--muted)">${h(s.year||'')} · ${h(s.format||'')}</div>
+              </div>
+              <span class="conf-label conf-high">${Math.round((s.score||0)*100)}% match</span>
+            </div>`;
+          }).join('')}
+        </div>` : '';
+
+    const altRows = omdbResults?.length
+      ? `<div style="margin-top:12px">
+          <div style="font-size:.75rem;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:6px">Or select a different match:</div>
+          ${omdbResults.map(x => `
+            <div class="alt-result-row ${x.imdbID === this.selectedImdbId ? 'selected' : ''}"
+                 onclick="Batch.selectAlt('${h(x.imdbID)}', this)">
+              ${x.Poster && x.Poster !== 'N/A' ? `<img style="width:28px;height:40px;object-fit:cover;border-radius:3px;flex-shrink:0" src="${h(x.Poster)}" alt="">` : '<div style="width:28px;height:40px;border-radius:3px;background:var(--bg);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.9rem">🎬</div>'}
+              <div>
+                <div style="font-size:.84rem;font-weight:600">${h(x.Title)}</div>
+                <div style="font-size:.72rem;color:var(--muted)">${h(x.Year||'')} · ${h(x.imdbID)}</div>
+              </div>
+            </div>`).join('')}
+        </div>` : '';
+
+    document.getElementById('batch-modal-body').innerHTML = `
+      <div class="enrich-progress"><div class="enrich-progress-fill" style="width:${pct}%"></div></div>
+      <div style="font-size:.75rem;color:var(--muted);margin-bottom:12px">${this.current+1} of ${this.total} · ✓ ${this.updated} updated · ⟳ ${this.skipped} skipped</div>
+
+      ${dupWarn}
+
+      <div style="margin-bottom:12px">
+        <div style="font-size:.78rem;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:6px">Current record</div>
+        <div style="background:rgba(255,255,255,.04);border-radius:8px;padding:10px;font-size:.85rem">
+          <strong>${h(movie.movieName)}</strong>
+          ${movie.year ? ` (${h(movie.year)})` : ''}
+          <span style="color:var(--muted)"> · ${h(movie.format||'DVD')}</span>
+          ${movie.imdbId ? `<span style="color:var(--muted);font-size:.75rem"> · ${h(movie.imdbId)}</span>` : ''}
+        </div>
+      </div>
+
+      ${omdbData ? `
+      <div style="margin-bottom:14px">
+        <div style="font-size:.78rem;color:var(--success);font-weight:700;text-transform:uppercase;margin-bottom:8px">✦ Best OMDB Match</div>
+        <div style="display:flex;gap:14px;align-items:flex-start">
+          ${posterEl}
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:1rem">${h(omdbData.Title||'')}</div>
+            <div style="color:var(--muted);font-size:.82rem;margin-top:3px">${h(omdbData.Year||'')} · ${h(omdbData.Rated||'')} · ${h(omdbData.Runtime||'')}</div>
+            <div style="font-size:.82rem;margin-top:3px">${h(omdbData.Director||'')}</div>
+            <div style="font-size:.8rem;color:var(--muted);margin-top:2px">${h(omdbData.Genre||'')}</div>
+            ${omdbData.imdbRating ? `<span class="imdb-pill" style="display:inline-block;margin-top:6px">⭐ ${h(omdbData.imdbRating)}</span>` : ''}
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="font-size:.75rem;color:var(--muted);font-weight:700;text-transform:uppercase">Barcode to assign (optional)</label>
+        <input id="batch-barcode-input" class="form-control form-control-sm mt-1"
+               placeholder="Scan or type UPC/EAN…" inputmode="numeric"
+               value="${h(movie.barcode||'')}">
+      </div>
+
+      <div style="margin-bottom:14px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:.85rem;cursor:pointer">
+          <input type="checkbox" id="batch-full-update" checked style="accent-color:var(--accent);width:16px;height:16px">
+          Update all metadata (title, cast, plot, poster, rating…)
+        </label>
+        <div style="font-size:.75rem;color:var(--muted);margin-top:2px;margin-left:24px">
+          Uncheck to only update IMDB ID, rating, and barcode
+        </div>
+      </div>
+      ${altRows}
+      ` : `<div style="background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);border-radius:8px;padding:12px;margin-bottom:14px;font-size:.85rem">
+        <i class="bi bi-exclamation-triangle" style="color:var(--warning)"></i>
+        No OMDB match found for <strong>${h(movie.movieName)}</strong>. You can skip this entry.
+      </div>${altRows}`}
+
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px">
+        ${omdbData ? `<button class="btn-accent" style="flex:1" onclick="Batch.applyAndNext()">
+          <i class="bi bi-check-lg"></i> Yes, Update
+        </button>` : ''}
+        <button class="btn btn-outline-secondary" style="flex:1" onclick="Batch.skipAndNext()">
+          Skip <i class="bi bi-skip-forward-fill"></i>
+        </button>
+        <button class="btn btn-outline-danger" onclick="Batch.stop();bootstrap.Modal.getInstance(document.getElementById('modal-batch')).hide()">
+          Stop
+        </button>
+      </div>`;
+  },
+
+  renderError(movie, msg) {
+    document.getElementById('batch-modal-body').innerHTML = `
+      <p style="color:var(--danger)">Error looking up <strong>${h(movie.movieName)}</strong>: ${h(msg)}</p>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn-accent" onclick="Batch.skipAndNext()">Skip <i class="bi bi-skip-forward-fill"></i></button>
+        <button class="btn btn-outline-danger" onclick="Batch.stop();bootstrap.Modal.getInstance(document.getElementById('modal-batch')).hide()">Stop</button>
+      </div>`;
+  },
+
+  selectAlt(imdbId, el) {
+    this.selectedImdbId = imdbId;
+    document.querySelectorAll('.alt-result-row').forEach(r => r.classList.remove('selected'));
+    el.classList.add('selected');
+  },
+
+  async applyAndNext() {
+    const movie    = this.candidates[this.current];
+    const imdbId   = this.selectedImdbId;
+    const barcode  = document.getElementById('batch-barcode-input')?.value.trim() || '';
+    const full     = document.getElementById('batch-full-update')?.checked !== false;
+    if (!imdbId) { toast('No IMDB ID selected', 'warning'); return; }
+    try {
+      await apiCall('/batch/apply', {
+        method: 'POST',
+        body: JSON.stringify({ id: movie.id, imdbId, barcode: barcode || null, applyFields: full }),
+      });
+      this.updated++;
+    } catch (e) {
+      toast('Update failed: ' + e.message, 'danger');
+    }
+    this.current++;
+    this.nextCandidate();
+  },
+
+  skipAndNext() {
+    this.skipped++;
+    this.current++;
+    this.nextCandidate();
+  },
+
+  stop() { this.stopped = true; },
+
+  showSummary() {
+    document.getElementById('batch-modal-body').innerHTML = `
+      <div style="text-align:center;padding:30px">
+        <i class="bi bi-check-circle-fill" style="font-size:3rem;color:var(--success);display:block;margin-bottom:16px"></i>
+        <h5>Batch Complete</h5>
+        <div style="display:flex;justify-content:center;gap:24px;margin-top:16px">
+          <div><div style="font-size:2rem;font-weight:800;color:var(--success)">${this.updated}</div><div style="font-size:.8rem;color:var(--muted)">Updated</div></div>
+          <div><div style="font-size:2rem;font-weight:800;color:var(--muted)">${this.skipped}</div><div style="font-size:.8rem;color:var(--muted)">Skipped</div></div>
+          <div><div style="font-size:2rem;font-weight:800;color:var(--accent)">${this.total}</div><div style="font-size:.8rem;color:var(--muted)">Total</div></div>
+        </div>
+        ${this.updated ? '<p style="margin-top:16px;font-size:.85rem;color:var(--muted)">Run <code>node scripts/fetch-posters.js</code> to download any new poster images.</p>' : ''}
+      </div>`;
+    document.getElementById('batch-modal-footer').innerHTML =
+      `<button class="btn-accent" data-bs-dismiss="modal" onclick="Library.reload()">Done</button>`;
+    if (this.updated) Library.reload();
   },
 };
 

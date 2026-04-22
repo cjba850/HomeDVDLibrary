@@ -16,7 +16,9 @@
     "passport-google-oauth20": "^2.0.0",
     "express-session": "^1.18.0",
     "express-mysql-session": "^3.0.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.3.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

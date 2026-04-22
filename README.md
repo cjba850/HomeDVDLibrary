@@ -1,30 +1,50 @@
 # 🎬 DVD / Blu-Ray Library Manager
 
-A self-hosted web app for cataloguing your physical disc collection.
-Works on desktop and as a PWA on iPhone/Android — scan barcodes with your camera,
-auto-fill metadata from OMDB/IMDB, track loans, and batch-enrich missing data.
+A self-hosted web application for cataloguing physical disc collections.
+Access via any browser, or install as a PWA on iPhone/Android and scan barcodes with your camera.
 
 ---
 
-## Features
+## Feature Summary
 
-- **Barcode scanning** via device camera (iPhone Safari, Android Chrome, desktop webcam)
-- **Auto-fill from OMDB/IMDB** — title, cast, plot, poster, rating, runtime, genre
-- **CRUD library** — add, edit, delete, search, filter, sort
-- **Advanced filter panel** — genre, age rating, place of purchase, IMDB score range, year range, poster-only toggle
-- **Fuzzy duplicate detection** — exact, IMDB ID, SOUNDEX phonetic, and word-overlap matching on every save/lookup
-- **Loan tracking** — loan out to named people, mark returned, full history per disc
-- **Loans view** — see all on-loan discs, filter by person, days-out colouring
-- **Batch Enrich** — step through movies missing metadata with OMDB confirmation popup, update IMDB ID / barcode / poster in bulk
-- **Poster caching** — download OMDB poster images locally so library works offline
-- **Statistics dashboard** — by format, genre, decade, average IMDB rating
-- **PWA** — add to home screen on iOS/Android
-- **MySQL/MariaDB** backend — your data stays on your own server
-- Preserves all original schema fields (`movieName`, `actors`, `pop`, `rrp`, `pp`, `rating`, `comments`)
+| Category | Features |
+|----------|----------|
+| **Library** | Grid/list views · sort · full-text search · poster images |
+| **Filters** | Format · genre · age rating · place of purchase · IMDB score · year range · poster-only |
+| **Add/Edit** | Manual entry · barcode scan · OMDB auto-fill · cover preview · shelf location |
+| **Barcode** | Camera scan (iOS Safari / Android Chrome / desktop) · manual entry fallback · UPCitemdb lookup chain |
+| **OMDB** | Title search · IMDB ID lookup · auto-fill all metadata · batch enrichment |
+| **Duplicates** | Exact match · IMDB ID · SOUNDEX phonetic · word-overlap (4 strategies) |
+| **Posters** | Remote OMDB URL or locally cached `/posters/<id>.jpg` |
+| **Loans** | Loan out to named person · mark returned · full history · days-out colour coding |
+| **Batch Enrich** | Step through missing-metadata movies · confirm OMDB match · update barcode/IMDB/poster in bulk |
+| **Stats** | Totals · by format · top genres · by decade · average IMDB rating · average price paid |
+| **Auth** | Google SSO (OAuth 2.0) · domain allowlist · email allowlist · session stored in MariaDB |
+| **Security** | Helmet CSP · rate limiting · input validation · parameterised SQL · no-store cache headers |
+| **PWA** | Installable on iOS/Android home screen · works offline for browsing |
+| **Service** | systemd unit · auto-start on reboot · manage-service.sh helper |
 
 ---
 
-## Quick Start (Docker — recommended)
+## Technology Stack
+
+| Component | Version | Notes |
+|-----------|---------|-------|
+| Node.js | **v24 LTS** recommended (v18+ minimum) | |
+| Express | ^4.19 | REST API + static file server |
+| MariaDB / MySQL | 10.4+ / 5.7+ | Primary datastore |
+| Passport.js | ^0.7 | Google OAuth 2.0 |
+| express-session | ^1.18 | Session management |
+| express-mysql-session | ^3.0 | Session persistence in MariaDB |
+| Helmet | ^7.1 | Security headers / CSP |
+| express-rate-limit | ^7.3 | Auth + API rate limiting |
+| axios | ^1.6 | OMDB / UPCitemdb HTTP calls |
+| html5-qrcode | 2.3.8 | Camera barcode scanning (CDN) |
+| Bootstrap | 5.3.3 | UI framework (CDN) |
+
+---
+
+## Quick Start (Docker)
 
 ### 1. Prerequisites
 ```bash
@@ -32,121 +52,178 @@ docker --version        # ≥ 24
 docker compose version  # ≥ 2.20
 ```
 
-### 2. Get your free OMDB API key
-Register at **https://www.omdbapi.com/apikey.aspx** (free tier: 1000 req/day).
+### 2. Get a free OMDB key
+Register at **https://www.omdbapi.com/apikey.aspx** (1 000 req/day free).
 
-### 3. Configure environment
+### 3. Configure
 ```bash
-cd dvd-library
 cp backend/.env.example .env
-nano .env   # set OMDB_API_KEY and change passwords
-```
-
-`.env` values:
-```ini
-DB_ROOT_PASS=changeme_root
-DB_PASS=dvdlib_secret
-OMDB_API_KEY=your_key_here
-PORT=3000
+nano .env   # set OMDB_API_KEY, DB_PASS, SESSION_SECRET, GOOGLE_CLIENT_ID/SECRET
 ```
 
 ### 4. Start
 ```bash
 docker compose up -d
-# Open http://localhost:3000  or  http://YOUR_SERVER_IP:3000
+# Open http://localhost:3000
 ```
 
 ---
 
-## Manual Install (without Docker)
+## Manual Install (Linux — Node.js + MariaDB)
 
-### Requirements
-- Node.js ≥ 18
-- MySQL 5.7+ or MariaDB 10.4+
-
-### Setup
+### Install Node.js 24 LTS
 ```bash
-# 1. Create database
-sudo mariadb -u root -p << SQL
-CREATE DATABASE dvdlibrary CHARACTER SET utf8mb4;
-CREATE USER 'dvdlib'@'localhost' IDENTIFIED BY 'your_password';
-GRANT ALL ON dvdlibrary.* TO 'dvdlib'@'localhost';
-SQL
-
-# 2. Load schema
-mariadb -u dvdlib -p dvdlibrary < schema.sql
-
-# 3. Configure
-cp backend/.env.example .env && nano .env
-
-# 4. Install & run
-cd backend && npm install
-node server.js
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+sudo apt install -y nodejs
+node --version   # should print v24.x.x
 ```
+
+### Install MariaDB
+```bash
+sudo apt install -y mariadb-server
+sudo mysql_secure_installation
+```
+
+### Create database & user
+```bash
+sudo mariadb -u root -p << SQL
+CREATE DATABASE dvdlibrary CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'dvdlib'@'localhost' IDENTIFIED BY 'your_strong_password';
+GRANT ALL PRIVILEGES ON dvdlibrary.* TO 'dvdlib'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+```
+
+### Load schema
+```bash
+mariadb -u dvdlib -p dvdlibrary < schema.sql
+```
+
+### Configure & run
+```bash
+cp backend/.env.example .env
+nano .env          # fill in all values
+
+cd backend
+npm install
+node server.js     # development / manual start
+```
+
+---
+
+## Running as a Linux Service (auto-start on reboot)
+
+```bash
+# Install once — creates dvdlib user, copies to /opt/dvd-library, enables systemd
+sudo bash systemd/install-service.sh
+
+# Day-to-day management
+sudo bash systemd/manage-service.sh start
+sudo bash systemd/manage-service.sh stop
+sudo bash systemd/manage-service.sh restart
+sudo bash systemd/manage-service.sh status
+sudo bash systemd/manage-service.sh logs        # live log tail
+sudo bash systemd/manage-service.sh update      # pull new code and restart
+sudo bash systemd/manage-service.sh uninstall   # clean removal
+```
+
+The service is enabled for **auto-start on reboot** by default after install.
+Secrets live in `/etc/dvd-library/env` (mode 640, owned root:dvdlib).
 
 ---
 
 ## Existing Database Migrations
 
-If you have an existing database, run the applicable migration scripts in order:
+Run these in order if you have an existing database:
 
 ```bash
-# Add local poster cache column (if created before poster-caching update)
+# Add local poster cache column
 mariadb -u dvdlib -p dvdlibrary < scripts/migrate-add-localposter.sql
 
-# Add loan tracking tables (if created before loans update)
+# Add loan tracking tables
 mariadb -u dvdlib -p dvdlibrary < scripts/migrate-add-loans.sql
+
+# Add Google SSO auth tables
+mariadb -u dvdlib -p dvdlibrary < scripts/migrate-add-auth.sql
 ```
 
 ---
 
 ## Poster Image Caching
 
-Downloads posters locally so the library loads faster and works offline.
-
 ```bash
-# From the project root (backend/.env or .env must be configured)
-node scripts/fetch-posters.js              # all missing posters
+node scripts/fetch-posters.js              # download all missing posters
 node scripts/fetch-posters.js --force      # re-download everything
-node scripts/fetch-posters.js --dry-run    # preview without downloading
-node scripts/fetch-posters.js --id 42      # single movie by DB id
+node scripts/fetch-posters.js --dry-run    # preview only
+node scripts/fetch-posters.js --id 42      # single movie by id
 ```
 
-Images are saved to `frontend/posters/<id>.jpg`. The app automatically
-uses the local file when available, falling back to the OMDB URL.
+Images saved to `frontend/posters/<id>.jpg`.
+The app prefers the local file; falls back to OMDB URL automatically.
 
 ---
 
-## Running as a Linux Service (systemd)
+## Google SSO Setup — Step by Step
 
+### Step 1 — Create a Google Cloud Project
+1. Go to **https://console.cloud.google.com/**
+2. Click the project selector → **New Project** → name it `DVD Library` → **Create**
+
+### Step 2 — OAuth Consent Screen
+1. **APIs & Services → OAuth consent screen**
+2. Choose **Internal** (Google Workspace users only) or **External** (add test users)
+3. Fill in App name, support email, developer contact → **Save and Continue**
+
+### Step 3 — Create Credentials
+1. **APIs & Services → Credentials → + Create Credentials → OAuth client ID**
+2. Application type: **Web application**
+3. Add authorised redirect URI:
+   ```
+   https://dvd.yourdomain.com/auth/google/callback
+   ```
+   For local testing also add: `http://localhost:3000/auth/google/callback`
+4. Copy the **Client ID** and **Client Secret**
+
+### Step 4 — Configure .env
+```ini
+GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxx
+APP_URL=https://dvd.yourdomain.com
+ALLOWED_DOMAIN=yourdomain.com          # any @yourdomain.com can sign in
+ALLOWED_EMAILS=                        # optional: specific extra addresses
+SESSION_SECRET=<generate below>
+SESSION_COOKIE_SECURE=false            # set true only for end-to-end HTTPS
+
+# Generate SESSION_SECRET:
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### Step 5 — Access Control
+| Scenario | Config |
+|----------|--------|
+| All staff on `company.com` | `ALLOWED_DOMAIN=company.com` |
+| Specific people only | `ALLOWED_EMAILS=alice@x.com,bob@gmail.com` |
+| Both | Set both — either rule grants access |
+| Any Google account | Leave both blank |
+
+### Step 6 — Apply migrations & restart
 ```bash
-# Install (creates dvdlib user, copies to /opt/dvd-library, enables service)
-sudo bash systemd/install-service.sh
-
-# Management
-sudo systemctl status  dvd-library
+mariadb -u dvdlib -p dvdlibrary < scripts/migrate-add-auth.sql
 sudo systemctl restart dvd-library
-sudo journalctl -u dvd-library -f          # live logs
-
-# Or use the helper:
-sudo bash systemd/manage-service.sh update     # sync new files & restart
-sudo bash systemd/manage-service.sh logs
-sudo bash systemd/manage-service.sh uninstall
 ```
+
+### Troubleshooting SSO
+| Symptom | Fix |
+|---------|-----|
+| `redirect_uri_mismatch` | Redirect URI in Google Console doesn't exactly match `APP_URL + /auth/google/callback` |
+| "Access denied" after sign-in | Email doesn't match `ALLOWED_DOMAIN` or `ALLOWED_EMAILS` |
+| Keeps showing login page | Check SESSION_SECRET is set; check `SESSION_COOKIE_SECURE=false` for HTTP setups |
+| `sso_not_configured` on login | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` missing from env |
+| "This app isn't verified" | Use **Internal** consent screen for Workspace, or add test users for External |
 
 ---
 
-## Mobile App (iPhone & Android)
-
-The web app is a **Progressive Web App (PWA)**. No App Store required.
-
-**iPhone:** Open in Safari → Share → Add to Home Screen  
-**Android:** Open in Chrome → Menu → Add to Home Screen
-
-> Camera barcode scanning requires HTTPS. Use the nginx config below or
-> Cloudflare Tunnel / Tailscale to expose your server securely.
-
-### Nginx + HTTPS config
+## nginx + HTTPS (required for camera scanning on iOS)
 
 ```nginx
 server {
@@ -155,19 +232,36 @@ server {
     ssl_certificate     /etc/letsencrypt/live/dvd.yourdomain.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/dvd.yourdomain.com/privkey.pem;
     location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_pass         http://127.0.0.1:3000;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_set_header   X-Real-IP         $remote_addr;
     }
 }
+server {
+    listen 80;
+    server_name dvd.yourdomain.com;
+    return 301 https://$host$request_uri;
+}
 ```
-Get free SSL: `certbot --nginx -d dvd.yourdomain.com`
+Free SSL: `sudo certbot --nginx -d dvd.yourdomain.com`
+
+When behind HTTPS nginx, set `SESSION_COOKIE_SECURE=true` in your env.
 
 ---
 
 ## API Reference
 
-### Movies
+### Auth (public)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/auth/google` | Begin Google OAuth flow |
+| GET | `/auth/google/callback` | OAuth callback (set as redirect URI in Google Console) |
+| GET | `/auth/logout` | Destroy session, redirect to login |
+| GET | `/api/auth/me` | Current user or 401 |
+| GET | `/api/auth/users` | All users who have signed in (requires auth) |
+
+### Movies (all require auth)
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/movies` | List. Params: `search`, `format`, `genre`, `ageRating`, `purchasedAt`, `minImdb`, `minYear`, `maxYear`, `sort` |
@@ -176,109 +270,111 @@ Get free SSL: `certbot --nginx -d dvd.yourdomain.com`
 | PUT | `/api/movies/:id` | Update |
 | DELETE | `/api/movies/:id` | Delete |
 
-### Lookups
+### Lookups (all require auth)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/lookup/barcode/:code` | UPC → UPCitemdb → OMDB chain |
+| GET | `/api/lookup/barcode/:code` | UPC → UPCitemdb → OMDB |
 | GET | `/api/lookup/imdb/:id` | OMDB by IMDB ID |
 | GET | `/api/lookup/title/:title` | OMDB by title |
 | GET | `/api/search/omdb?q=` | OMDB search (multiple results) |
 | GET | `/api/similar?title=&year=&imdbId=&excludeId=` | Fuzzy duplicate check |
-| GET | `/api/filters` | Distinct genres, ratings, purchase locations for dropdowns |
+| GET | `/api/filters` | Distinct genres, ratings, stores for dropdowns |
 
-### Loans
+### Loans (all require auth)
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/loans` | All on-loan movies. Param: `?person=` |
-| GET | `/api/loans/people` | Current + past borrowers |
-| GET | `/api/loans/history/:movieId` | Full history for one movie |
+| GET | `/api/loans/people` | Current + historical borrowers |
+| GET | `/api/loans/history/:movieId` | Loan history for one title |
 | POST | `/api/movies/:id/loan` | Lend out. Body: `{ loanedTo, notes }` |
 | POST | `/api/movies/:id/return` | Mark returned |
 
-### Batch Enrichment
+### Batch Enrichment (all require auth)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/batch/candidates` | Movies needing data. Params: `?missing=any\|imdb\|barcode\|poster&limit=50` |
-| GET | `/api/batch/lookup/:id` | OMDB match + duplicate check for one movie |
+| GET | `/api/batch/candidates` | Titles missing data. Params: `?missing=any\|imdb\|barcode\|poster&limit=50` |
+| GET | `/api/batch/lookup/:id` | OMDB match + duplicate check for one title |
 | POST | `/api/batch/apply` | Apply confirmed OMDB data. Body: `{ id, imdbId, barcode, applyFields }` |
 
-### Other
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/stats` | Library statistics |
-| GET | `/api/health` | Health check |
+### Misc
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/stats` | ✓ | Library statistics |
+| GET | `/api/health` | public | Docker healthcheck |
 
 ---
 
 ## Database Schema
 
+### movies table
 | Column | Type | Notes |
 |--------|------|-------|
-| `id` | INT AUTO_INCREMENT | Primary key |
-| `movieName` | VARCHAR(255) | **Original** |
-| `actors` | VARCHAR(1000) | **Original** |
-| `pop` | VARCHAR(20) | **Original** — place of purchase |
-| `rrp` | VARCHAR(20) | **Original** — retail price |
-| `pp` | VARCHAR(20) | **Original** — price paid |
-| `rating` | VARCHAR(20) | **Original** — age rating |
-| `comments` | VARCHAR(4000) | **Original** — personal notes |
-| `barcode` | VARCHAR(50) UNIQUE | UPC/EAN from disc |
+| `id` | INT AUTO_INCREMENT | PK |
+| `movieName` | VARCHAR(255) | **Original field** |
+| `actors` | VARCHAR(1000) | **Original field** |
+| `pop` | VARCHAR(20) | **Original field** — place of purchase |
+| `rrp` | VARCHAR(20) | **Original field** — retail price |
+| `pp` | VARCHAR(20) | **Original field** — price paid |
+| `rating` | VARCHAR(20) | **Original field** — age rating |
+| `comments` | VARCHAR(4000) | **Original field** — personal notes |
+| `barcode` | VARCHAR(50) UNIQUE | UPC/EAN |
 | `format` | ENUM | DVD / Blu-Ray / 4K UHD / Other |
-| `director` | VARCHAR(255) | From OMDB |
-| `genre` | VARCHAR(255) | From OMDB |
-| `year` | VARCHAR(10) | From OMDB |
-| `runtime` | VARCHAR(50) | From OMDB |
-| `plot` | TEXT | From OMDB |
-| `coverImage` | VARCHAR(500) | Original OMDB poster URL |
+| `director` | VARCHAR(255) | |
+| `genre` | VARCHAR(255) | |
+| `year` | VARCHAR(10) | |
+| `runtime` | VARCHAR(50) | |
+| `plot` | TEXT | |
+| `coverImage` | VARCHAR(500) | OMDB poster URL |
 | `localPoster` | VARCHAR(500) | Locally cached poster path |
 | `imdbId` | VARCHAR(50) | e.g. tt0111161 |
 | `imdbRating` | VARCHAR(10) | e.g. 9.3 |
-| `language` | VARCHAR(100) | From OMDB |
-| `country` | VARCHAR(100) | From OMDB |
-| `studio` | VARCHAR(255) | From OMDB |
+| `language` | VARCHAR(100) | |
+| `country` | VARCHAR(100) | |
+| `studio` | VARCHAR(255) | |
 | `location` | VARCHAR(100) | Physical shelf location |
 | `loanedTo` | VARCHAR(255) | Current borrower (empty = in library) |
-| `loanedDate` | DATETIME | When it was lent out |
-| `dateAdded` | DATETIME | Auto-set on insert |
-| `lastUpdated` | DATETIME | Auto-updated on change |
+| `loanedDate` | DATETIME | When lent out |
+| `dateAdded` | DATETIME | Auto on insert |
+| `lastUpdated` | DATETIME | Auto on update |
 
-**Loan History Table** (`loan_history`)
-
+### loan_history table
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | INT AUTO_INCREMENT | |
-| `movieId` | INT | FK → movies.id (CASCADE DELETE) |
-| `loanedTo` | VARCHAR(255) | Borrower name |
-| `loanedDate` | DATETIME | When lent |
+| `movieId` | INT | FK → movies.id (CASCADE) |
+| `loanedTo` | VARCHAR(255) | |
+| `loanedDate` | DATETIME | |
 | `returnedDate` | DATETIME | NULL = still out |
-| `notes` | VARCHAR(500) | Optional notes |
+| `notes` | VARCHAR(500) | |
+
+### auth_users table
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | INT AUTO_INCREMENT | |
+| `googleId` | VARCHAR(128) UNIQUE | |
+| `email` | VARCHAR(255) UNIQUE | |
+| `name` | VARCHAR(255) | |
+| `picture` | VARCHAR(500) | Avatar URL |
+| `firstLogin` | DATETIME | |
+| `lastLogin` | DATETIME | |
+| `loginCount` | INT | |
+
+### sessions table
+Auto-managed by express-mysql-session.
 
 ---
 
-## Barcode Lookup Flow
+## Security Notes
 
-```
-Scan barcode
-     │
-     ▼
-Own database ──found──▶ "Already in Library"
-     │ not found
-     ▼
-UPCitemdb.com (free) ──no match──▶ "Add Manually"
-     │ match → title
-     ▼
-OMDB API ──found──▶ Pre-fill form + run duplicate check
-```
-
-## Duplicate Detection (on every save/lookup)
-
-Four strategies, in order of confidence:
-1. **Exact normalised** — strips punctuation/articles, case-insensitive
-2. **IMDB ID** — same imdbId already exists in library
-3. **SOUNDEX phonetic** — catches typos and alternate spellings
-4. **Word overlap (≥60%)** — strips stop words, scores shared meaningful words
-
-Year filter demotes or removes matches where years differ by more than 2–5 years.
+- **Helmet.js** sets CSP, X-Frame-Options, HSTS, and other security headers on every response
+- **Rate limiting**: auth endpoints capped at 20 req/15 min; API at 300 req/min
+- **All API routes** require an authenticated session (`requireAuth` middleware)
+- **Input validation**: all `:id` params validated as positive integers; barcode/imdbId format-checked with regex; all strings length-capped before DB writes
+- **SQL injection**: all queries use parameterised statements (`?` placeholders) or hardcoded safe strings; dynamic column names are checked against a whitelist
+- **Session cookies**: `httpOnly: true`, `sameSite: lax`; `secure` flag controlled by `SESSION_COOKIE_SECURE` env var (not auto-detected)
+- **Body size**: JSON bodies capped at 64 KB
+- **OMDB responses**: capped at 512 KB; redirect-limited to 3
+- **Secrets**: stored in `/etc/dvd-library/env` (mode 640, root:dvdlib) — never in the app directory or git
 
 ---
 
@@ -287,199 +383,41 @@ Year filter demotes or removes matches where years differ by more than 2–5 yea
 ```
 dvd-library/
 ├── README.md
-├── schema.sql                       ← Full DB schema incl. loans
+├── schema.sql                         ← Full DB schema
 ├── docker-compose.yml
-├── .env                             ← create from backend/.env.example
+├── .gitignore
 ├── backend/
 │   ├── Dockerfile
-│   ├── package.json
-│   ├── server.js                    ← All REST API routes
-│   └── .env.example
+│   ├── package.json                   ← Node.js dependencies
+│   ├── server.js                      ← Express REST API (all routes)
+│   └── .env.example                   ← Environment variable template
 ├── frontend/
-│   ├── index.html                   ← Full PWA (single file, no build step)
-│   ├── manifest.json
-│   └── posters/                     ← Locally cached poster images (git-ignored)
+│   ├── index.html                     ← Full PWA (single file)
+│   ├── login.html                     ← Google SSO sign-in page
+│   ├── manifest.json                  ← PWA manifest
+│   └── posters/                       ← Cached poster images (git-ignored)
 ├── scripts/
-│   ├── fetch-posters.js             ← Download/cache OMDB poster images
-│   ├── migrate-add-localposter.sql  ← Migration: add localPoster column
-│   └── migrate-add-loans.sql        ← Migration: add loan tracking tables
+│   ├── fetch-posters.js               ← Download/cache OMDB poster images
+│   ├── migrate-add-localposter.sql
+│   ├── migrate-add-loans.sql
+│   └── migrate-add-auth.sql
 └── systemd/
-    ├── dvd-library.service          ← systemd unit file
-    ├── install-service.sh           ← Install & enable as Linux service
-    └── manage-service.sh            ← update / uninstall / logs helper
+    ├── dvd-library.service            ← systemd unit file
+    ├── install-service.sh             ← Full installer (Node + MySQL checks, auto-reboot)
+    └── manage-service.sh              ← start|stop|restart|status|logs|update|uninstall
 ```
 
 ---
 
 ## Troubleshooting
 
-**Camera not working on iPhone** → Must be HTTPS. See nginx config above.
-
-**OMDB search returns "key not configured"** → Add `OMDB_API_KEY=xxx` to `.env` and restart.
-
-**Barcode lookup finds nothing** → UPCitemdb free tier is 100 req/day. Use Manual Barcode Entry or search by title as fallback.
-
-**`Cannot find module 'mysql2/promise'` in fetch-posters.js** → Run from project root: `node scripts/fetch-posters.js`. The script resolves modules from `backend/node_modules` automatically.
-
-**DB connection refused** → `docker compose logs db` to check MariaDB status. The backend waits for the DB healthcheck before starting.
-
-**Images stretched in card view** → Fixed in current version. Posters use `object-fit: cover; object-position: center top` with a locked `aspect-ratio: 2/3`.
-
----
-
-## Google SSO Setup — Step-by-Step
-
-This section walks through creating OAuth 2.0 credentials in Google Cloud Console
-and configuring them for your DVD Library instance.
-
----
-
-### Step 1 — Create a Google Cloud Project
-
-1. Go to **https://console.cloud.google.com/**
-2. Click the project selector (top-left) → **New Project**
-3. Name it something like `DVD Library` → **Create**
-4. Make sure the new project is selected in the dropdown before continuing
-
----
-
-### Step 2 — Configure the OAuth Consent Screen
-
-This is the screen users see when signing in.
-
-1. In the left menu go to **APIs & Services → OAuth consent screen**
-2. Choose **Internal** (only users in your Google Workspace org can sign in)
-   > If you want to allow specific external Gmail accounts too, choose **External**,
-   > but you will need to add them to an allowlist — see Step 5.
-3. Click **Create**
-4. Fill in the required fields:
-   - **App name:** `DVD Library`
-   - **User support email:** your admin email
-   - **Developer contact:** your email
-5. Click **Save and Continue** through the Scopes and Test Users screens
-   (no changes needed — the defaults are fine for internal use)
-6. Click **Back to Dashboard**
-
----
-
-### Step 3 — Create OAuth 2.0 Credentials
-
-1. Go to **APIs & Services → Credentials**
-2. Click **+ Create Credentials → OAuth client ID**
-3. Application type: **Web application**
-4. Name: `DVD Library Web`
-5. Under **Authorised redirect URIs**, click **+ Add URI** and enter:
-   ```
-   https://dvd.yourdomain.com/auth/google/callback
-   ```
-   > Replace `dvd.yourdomain.com` with your actual domain.
-   > If testing locally, also add: `http://localhost:3000/auth/google/callback`
-6. Click **Create**
-7. A dialog shows your credentials — copy both values:
-   - **Client ID** (ends in `.apps.googleusercontent.com`)
-   - **Client Secret**
-
-   > Keep the Client Secret private — never commit it to git.
-
----
-
-### Step 4 — Configure Your `.env` File
-
-Open `/etc/dvd-library/env` (service install) or `backend/.env` (manual) and set:
-
-```ini
-# Paste the values from Step 3
-GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxxxxxx
-
-# The public HTTPS URL of your app — must match the redirect URI in Step 3
-APP_URL=https://dvd.yourdomain.com
-
-# Allow anyone from your Google Workspace domain to sign in
-ALLOWED_DOMAIN=yourdomain.com
-
-# Or restrict to specific emails (comma-separated, can combine with ALLOWED_DOMAIN)
-ALLOWED_EMAILS=alice@yourdomain.com,bob@gmail.com
-
-# Generate a random secret:
-#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-SESSION_SECRET=paste_your_generated_secret_here
-```
-
----
-
-### Step 5 — Access Control Options
-
-| Scenario | Config |
-|----------|--------|
-| All staff on `company.com` | `ALLOWED_DOMAIN=company.com` |
-| Specific people only | `ALLOWED_EMAILS=alice@company.com,bob@gmail.com` |
-| Both (domain + extra) | Set both — either rule grants access |
-| Any Google account (open) | Leave both blank |
-
-When a user tries to sign in with an account that doesn't match, they see
-an "Access denied" error on the login page and are **not** let through.
-
----
-
-### Step 6 — Run the Database Migration
-
-If your database already exists, add the auth tables:
-
-```bash
-mysql -u dvdlib -p dvdlibrary < scripts/migrate-add-auth.sql
-```
-
----
-
-### Step 7 — Restart the Service
-
-```bash
-# Docker
-docker compose down && docker compose up -d
-
-# Systemd
-sudo systemctl restart dvd-library
-```
-
-Open `https://dvd.yourdomain.com` — you should be redirected to the sign-in
-page. Click **Sign in with Google**, complete the Google consent flow,
-and land back on the library.
-
----
-
-### Step 8 — Verify HTTPS (required for production)
-
-Google OAuth **requires HTTPS** for the callback URL in production.
-The nginx config in this README's earlier section covers that.
-For quick local testing, `http://localhost:3000` is fine without HTTPS.
-
----
-
-### Troubleshooting SSO
-
-| Symptom | Fix |
+| Problem | Fix |
 |---------|-----|
-| `redirect_uri_mismatch` error | The redirect URI in Google Console doesn't exactly match `APP_URL + /auth/google/callback`. Check for trailing slashes, http vs https. |
-| "Access denied" on sign-in | The signed-in email doesn't match `ALLOWED_DOMAIN` or `ALLOWED_EMAILS`. Check the values in your `.env`. |
-| `sso_not_configured` on login page | `GOOGLE_CLIENT_ID` or `GOOGLE_CLIENT_SECRET` is missing from `.env`. |
-| Redirect loop after sign-in | `SESSION_SECRET` may be wrong or missing. Regenerate and restart. |
-| Session lost on restart (non-Docker) | Check MariaDB is running and the `sessions` table exists. Run `migrate-add-auth.sql`. |
-| Google shows "This app isn't verified" | You chose **External** consent screen. Add test users in Google Console or publish the app. For internal/workspace use, choose **Internal** instead. |
-
----
-
-### Who Has Signed In?
-
-The `auth_users` table logs every successful sign-in. You can query it:
-
-```sql
-SELECT email, name, loginCount, firstLogin, lastLogin
-FROM auth_users ORDER BY lastLogin DESC;
-```
-
-Or call the API (must be signed in):
-
-```
-GET /api/auth/users
-```
+| Camera barcode scanning not working (iOS) | Must be HTTPS. See nginx config above. |
+| `Cannot find module 'mysql2/promise'` in fetch-posters.js | Run from project root: `node scripts/fetch-posters.js` |
+| `Incorrect arguments to mysqld_stmt_execute` | Fixed in current version (batch candidates now uses `pool.query` with inlined LIMIT) |
+| OMDB search returns "key not configured" | Set `OMDB_API_KEY` in env and restart |
+| Login loop / session_expired on first visit | Fixed in current version. Check `SESSION_COOKIE_SECURE=false` for HTTP setups |
+| `redirect_uri_mismatch` on Google sign-in | Redirect URI in Google Console must exactly match `APP_URL/auth/google/callback` |
+| Service won't start after reboot | Check `sudo journalctl -u dvd-library -n 50`; verify env file has real values |
+| Posters stretched in card view | Fixed in current version (`object-fit: cover; object-position: center top`) |

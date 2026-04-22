@@ -12,6 +12,8 @@ const session        = require('express-session');
 const MySQLStore     = require('express-mysql-session')(session);
 const passport       = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const helmet         = require('helmet');
+const rateLimit      = require('express-rate-limit');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -121,8 +123,56 @@ passport.deserializeUser((user, done) => done(null, user));
 app.use(express.static(path.join(__dirname, '../frontend')));
 app.use('/posters', express.static(path.join(__dirname, '../frontend/posters')));
 
-app.use(cors({ credentials: true, origin: process.env.APP_URL || true }));
-app.use(express.json());
+// ── Security headers (Helmet) ─────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc:  ["'self'"],
+      scriptSrc:   ["'self'", "'unsafe-inline'",  // needed for inline <script> in single-file app
+                    "cdn.jsdelivr.net", "unpkg.com"],
+      styleSrc:    ["'self'", "'unsafe-inline'", "cdn.jsdelivr.net"],
+      imgSrc:      ["'self'", "data:", "https:", "http:"],  // posters from OMDB CDN
+      connectSrc:  ["'self'"],
+      fontSrc:     ["'self'", "cdn.jsdelivr.net"],
+      frameSrc:    ["'none'"],
+      objectSrc:   ["'none'"],
+      upgradeInsecureRequests: process.env.SESSION_COOKIE_SECURE === 'true' ? [] : null,
+    },
+  },
+  crossOriginEmbedderPolicy: false,  // needed for external poster images
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+}));
+
+// ── Rate limiters ─────────────────────────────────────────────────────────────
+// Auth endpoints: strict limit to slow brute-force / token stuffing attempts
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,   // 15 minutes
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { error: 'Too many authentication attempts. Please try again in 15 minutes.' },
+  skip: (req) => req.path === '/auth/google/callback', // don't limit OAuth callbacks
+});
+
+// API endpoints: generous limit — 300 requests per minute per IP
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { error: 'Request rate limit exceeded. Please slow down.' },
+});
+
+app.use('/auth/', authLimiter);
+app.use('/api/',  apiLimiter);
+
+app.use(cors({
+  credentials: true,
+  origin: process.env.APP_URL
+    ? [process.env.APP_URL, 'http://localhost:' + (process.env.PORT || 3000)]
+    : false,
+}));
+app.use(express.json({ limit: '64kb' }));   // cap request body size
 
 // Trust the first reverse proxy (nginx/Cloudflare) so req.secure works correctly
 app.set('trust proxy', 1);
@@ -151,9 +201,23 @@ app.use(passport.session());
 
 // ── Auth guard — applied to all /api/* routes ─────────────────────────────────
 function requireAuth(req, res, next) {
-  if (req.isAuthenticated()) return next();
+  if (req.isAuthenticated()) {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    return next();
+  }
   res.status(401).json({ error: 'Not authenticated', loginUrl: '/login.html' });
 }
+
+// ── Input helpers ─────────────────────────────────────────────────────────────
+/** Parse and validate a route :id param — returns integer or sends 400 */
+function parseId(req, res) {
+  const id = parseInt(req.params.id, 10);
+  if (!id || id < 1) { res.status(400).json({ error: 'Invalid id' }); return null; }
+  return id;
+}
+
+/** Trim and cap a string from user input */
+const cap = (v, max = 255) => String(v ?? '').trim().substring(0, max);
 
 // ── Google OAuth routes (public — no auth guard) ─────────────────────────────
 app.get('/auth/google',
@@ -250,7 +314,13 @@ async function omdbGet(params) {
   const key = omdbKey();
   if (!key) throw new Error('OMDB_API_KEY not configured. Get a free key at https://www.omdbapi.com/apikey.aspx');
   const url = 'https://www.omdbapi.com/';
-  const res = await axios.get(url, { params: { ...params, apikey: key }, timeout: 8000 });
+  const res = await axios.get(url, {
+    params:  { ...params, apikey: key },
+    timeout: 8000,
+    maxContentLength: 512 * 1024,  // 512 KB max response
+    maxRedirects: 3,
+  });
+  if (typeof res.data !== 'object') throw new Error('Unexpected OMDB response');
   return res.data;
 }
 
@@ -270,8 +340,8 @@ app.get('/api/health', async (req, res) => {
 app.get('/api/movies', requireAuth, async (req, res) => {
   try {
     const { search, format, genre, sort = 'movieName' } = req.query;
-    const allowed = ['movieName','year','dateAdded','imdbRating','pp'];
-    const orderBy  = allowed.includes(sort) ? sort : 'movieName';
+    const SORT_ALLOW = ['movieName','year','dateAdded','imdbRating','pp'];
+    const orderBy   = SORT_ALLOW.includes(sort) ? sort : 'movieName';
 
     let sql = 'SELECT * FROM movies WHERE 1=1';
     const params = [];
@@ -303,7 +373,8 @@ app.get('/api/movies', requireAuth, async (req, res) => {
 // GET /api/movies/:id
 app.get('/api/movies/:id', requireAuth, async (req, res) => {
   try {
-    const [rows] = await pool.execute('SELECT * FROM movies WHERE id = ?', [req.params.id]);
+    const id = parseId(req, res); if (!id) return;
+    const [rows] = await pool.execute('SELECT * FROM movies WHERE id = ?', [id]);
     if (!rows.length) return res.status(404).json({ error: 'Movie not found' });
     res.json(rows[0]);
   } catch (e) {
@@ -367,7 +438,8 @@ app.put('/api/movies/:id', requireAuth, async (req, res) => {
 // DELETE /api/movies/:id
 app.delete('/api/movies/:id', requireAuth, async (req, res) => {
   try {
-    const [result] = await pool.execute('DELETE FROM movies WHERE id = ?', [req.params.id]);
+    const id = parseId(req, res); if (!id) return;
+    const [result] = await pool.execute('DELETE FROM movies WHERE id = ?', [id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Movie not found' });
     res.json({ message: 'Movie deleted successfully' });
   } catch (e) {
@@ -378,7 +450,9 @@ app.delete('/api/movies/:id', requireAuth, async (req, res) => {
 // ── Barcode Lookup Chain ──────────────────────────────────────────────────────
 // 1. Check own DB  →  2. UPC ItemDB (free)  →  3. OMDB by title
 app.get('/api/lookup/barcode/:code', requireAuth, async (req, res) => {
-  const code = req.params.code.trim();
+  const code = req.params.code.trim().substring(0, 50);
+  if (!/^[0-9A-Za-z\-]{4,50}$/.test(code))
+    return res.status(400).json({ error: 'Invalid barcode format' });
 
   // 1. Already in library?
   try {
@@ -431,7 +505,9 @@ app.get('/api/lookup/imdb/:id', requireAuth, async (req, res) => {
 // ── OMDB Lookup by Title ──────────────────────────────────────────────────────
 app.get('/api/lookup/title/:title', requireAuth, async (req, res) => {
   try {
-    const d = await omdbGet({ t: req.params.title, plot: 'full' });
+    const title = cap(req.params.title, 200);
+    if (!title) return res.status(400).json({ error: 'title is required' });
+    const d = await omdbGet({ t: title, plot: 'full' });
     if (d.Response === 'True') {
       res.json({ found: true, movie: omdbToMovie(d) });
     } else {
@@ -445,7 +521,7 @@ app.get('/api/lookup/title/:title', requireAuth, async (req, res) => {
 // ── OMDB Search (multiple results) ───────────────────────────────────────────
 app.get('/api/search/omdb', requireAuth, async (req, res) => {
   try {
-    const { q } = req.query;
+    const q = cap(req.query.q, 150);
     if (!q) return res.status(400).json({ error: 'q parameter required' });
     const d = await omdbGet({ s: q, type: 'movie' });
     if (d.Response === 'True') {
@@ -703,8 +779,9 @@ app.post('/api/movies/:id/loan', requireAuth, async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { loanedTo, notes = '' } = req.body;
-    if (!loanedTo?.trim()) {
+    const loanedTo = cap(req.body.loanedTo, 255);
+    const notes    = cap(req.body.notes, 500);
+    if (!loanedTo) {
       await conn.rollback();
       return res.status(400).json({ error: 'loanedTo name is required' });
     }
@@ -719,7 +796,7 @@ app.post('/api/movies/:id/loan', requireAuth, async (req, res) => {
     const now = new Date();
     await conn.execute(
       'UPDATE movies SET loanedTo = ?, loanedDate = ? WHERE id = ?',
-      [loanedTo.trim(), now, req.params.id]
+      [loanedTo, now, req.params.id]
     );
     await conn.execute(
       'INSERT INTO loan_history (movieId, loanedTo, loanedDate, notes) VALUES (?,?,?,?)',
@@ -778,19 +855,24 @@ app.post('/api/movies/:id/return', requireAuth, async (req, res) => {
 // Query params: ?limit=50&missing=imdb|barcode|poster|any (default: any)
 app.get('/api/batch/candidates', requireAuth, async (req, res) => {
   try {
-    const limit   = Math.min(parseInt(req.query.limit || '200'), 500);
-    const missing = req.query.missing || 'any';
+    // Validate & clamp limit — inline as integer (not a parameter) because
+    // MySQL prepared statements can reject LIMIT ? when WHERE has IS NULL/OR
+    const limit   = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
+    const missing = (req.query.missing || 'any').replace(/[^a-z]/g, '');
 
-    let where = '';
-    if (missing === 'imdb')    where = "(imdbId = '' OR imdbId IS NULL)";
-    else if (missing === 'barcode') where = "(barcode IS NULL OR barcode = '')";
-    else if (missing === 'poster')  where = "(coverImage = '' OR coverImage IS NULL) AND (localPoster = '' OR localPoster IS NULL)";
-    else where = "(imdbId = '' OR imdbId IS NULL OR barcode IS NULL OR coverImage = '')";
+    // All where strings are hardcoded — NOT from user input; safe to inline
+    const WHERE_MAP = {
+      imdb:    "(imdbId = '' OR imdbId IS NULL)",
+      barcode: "(barcode IS NULL OR barcode = '')",
+      poster:  "(coverImage = '' OR coverImage IS NULL) AND (localPoster = '' OR localPoster IS NULL)",
+    };
+    const where = WHERE_MAP[missing] ||
+      "(imdbId = '' OR imdbId IS NULL OR barcode IS NULL OR coverImage = '')";
 
-    const [rows] = await pool.execute(
+    // pool.query sends plain SQL (no prepared stmt) — avoids mysqld_stmt_execute error
+    const [rows] = await pool.query(
       `SELECT id, movieName, year, format, imdbId, barcode, coverImage, localPoster, director, genre
-       FROM movies WHERE ${where} ORDER BY movieName LIMIT ?`,
-      [limit]
+       FROM movies WHERE ${where} ORDER BY movieName LIMIT ${limit}`
     );
     res.json({ count: rows.length, candidates: rows });
   } catch (e) {
@@ -857,45 +939,61 @@ app.get('/api/batch/lookup/:id', requireAuth, async (req, res) => {
 // body: { id, imdbId, applyFields: true (full update) | false (imdbId/barcode/poster only) }
 app.post('/api/batch/apply', requireAuth, async (req, res) => {
   try {
-    const { id, imdbId, barcode, applyFields = true } = req.body;
-    if (!id) return res.status(400).json({ error: 'id is required' });
+    const rawId      = req.body.id;
+    const rawImdbId  = req.body.imdbId;
+    const rawBarcode = req.body.barcode;
+    const applyFields = req.body.applyFields !== false;
+
+    // Strict input validation
+    const id = parseInt(rawId, 10);
+    if (!id || id < 1) return res.status(400).json({ error: 'id must be a positive integer' });
+    if (!rawImdbId || !/^tt\d{7,8}$/.test(rawImdbId))
+      return res.status(400).json({ error: 'imdbId must be in format tt1234567' });
+    if (rawBarcode && !/^[0-9]{8,14}$/.test(rawBarcode))
+      return res.status(400).json({ error: 'barcode must be 8–14 digits' });
 
     // Fetch fresh from OMDB
-    const d = await omdbGet({ i: imdbId, plot: 'full' });
+    const d = await omdbGet({ i: rawImdbId, plot: 'full' });
     if (d.Response !== 'True') return res.status(404).json({ error: d.Error || 'OMDB not found' });
 
-    const patch = { imdbId: d.imdbID || imdbId, imdbRating: d.imdbRating || '' };
-    if (barcode) patch.barcode = barcode;
+    // Whitelist of allowed columns — never allow user to specify column names
+    const ALLOWED_COLUMNS = new Set([
+      'imdbId','imdbRating','barcode','movieName','actors','director',
+      'genre','year','runtime','plot','rating','language','country','studio','coverImage'
+    ]);
+
+    const patch = {};
+    patch.imdbId     = String(d.imdbID || rawImdbId).substring(0, 50);
+    patch.imdbRating = String(d.imdbRating || '').substring(0, 10);
+    if (rawBarcode) patch.barcode = rawBarcode;
 
     if (applyFields) {
-      Object.assign(patch, {
-        movieName:  d.Title      || '',
-        actors:     d.Actors     || '',
-        director:   d.Director   || '',
-        genre:      d.Genre      || '',
-        year:       d.Year       || '',
-        runtime:    d.Runtime    || '',
-        plot:       d.Plot       || '',
-        rating:     d.Rated      || '',
-        language:   d.Language   || '',
-        country:    d.Country    || '',
-        studio:     d.Production || '',
-      });
-      if (d.Poster && d.Poster !== 'N/A') patch.coverImage = d.Poster;
+      const safe = (v, max=255) => String(v || '').substring(0, max);
+      patch.movieName = safe(d.Title);
+      patch.actors    = safe(d.Actors, 1000);
+      patch.director  = safe(d.Director);
+      patch.genre     = safe(d.Genre);
+      patch.year      = safe(d.Year, 10);
+      patch.runtime   = safe(d.Runtime, 50);
+      patch.plot      = safe(d.Plot, 2000);
+      patch.rating    = safe(d.Rated, 20);
+      patch.language  = safe(d.Language, 100);
+      patch.country   = safe(d.Country, 100);
+      patch.studio    = safe(d.Production);
+      if (d.Poster && d.Poster !== 'N/A') patch.coverImage = safe(d.Poster, 500);
     }
 
-    // Build SET clause dynamically
-    const keys   = Object.keys(patch);
-    const values = Object.values(patch);
-    const setClause = keys.map(k => `\`${k}\` = ?`).join(', ');
-    values.push(id);
+    // Build parameterised SET clause — keys come from our whitelist only
+    const safeKeys = Object.keys(patch).filter(k => ALLOWED_COLUMNS.has(k));
+    if (!safeKeys.length) return res.status(400).json({ error: 'Nothing to update' });
+    const setClause = safeKeys.map(k => `\`${k}\` = ?`).join(', ');
+    const values    = [...safeKeys.map(k => patch[k]), id];
 
     const [result] = await pool.execute(
       `UPDATE movies SET ${setClause} WHERE id = ?`, values
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Movie not found' });
 
-    // Return the updated movie row
     const [[updated]] = await pool.execute('SELECT * FROM movies WHERE id = ?', [id]);
     res.json({ message: 'Movie enriched', movie: updated });
   } catch (e) {

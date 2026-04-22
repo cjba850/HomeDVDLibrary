@@ -575,7 +575,7 @@ app.post('/api/movies/:id/return', async (req, res) => {
     }
     const now = new Date();
     await conn.execute(
-      'UPDATE movies SET loanedTo = '', loanedDate = NULL WHERE id = ?', [req.params.id]
+      "UPDATE movies SET loanedTo = '', loanedDate = NULL WHERE id = ?", [req.params.id]
     );
     await conn.execute(
       `UPDATE loan_history SET returnedDate = ?
@@ -608,7 +608,7 @@ app.get('/api/batch/candidates', async (req, res) => {
 
     let where = '';
     if (missing === 'imdb')    where = "(imdbId = '' OR imdbId IS NULL)";
-    else if (missing === 'barcode') where = '(barcode IS NULL OR barcode = '')';
+    else if (missing === 'barcode') where = "(barcode IS NULL OR barcode = '')";
     else if (missing === 'poster')  where = "(coverImage = '' OR coverImage IS NULL) AND (localPoster = '' OR localPoster IS NULL)";
     else where = "(imdbId = '' OR imdbId IS NULL OR barcode IS NULL OR coverImage = '')";
 

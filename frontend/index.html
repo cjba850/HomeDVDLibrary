@@ -322,6 +322,60 @@ html, body {
 .btn-accent:hover { background: #4f46e5; color: #fff; }
 .btn-accent:active { transform: scale(.97); }
 .btn-accent:disabled { opacity: .6; cursor: default; }
+
+/* ═══════════════════════════════════════════════
+   FILTER PANEL
+   ═══════════════════════════════════════════════ */
+.view-toggle-btn {
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--muted); padding: 8px 12px; border-radius: 8px; cursor: pointer;
+  position: relative; transition: color .2s, border-color .2s;
+}
+.view-toggle-btn.active { color: var(--accent); border-color: var(--accent); }
+.filter-badge {
+  position: absolute; top: 4px; right: 4px;
+  color: var(--accent); font-size: .55rem; line-height: 1;
+}
+.filter-panel-inner {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 14px; padding: 16px;
+}
+.filter-row {
+  display: flex; flex-wrap: wrap; gap: 12px;
+}
+.filter-group {
+  flex: 1; min-width: 140px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.filter-label {
+  font-size: .72rem; color: var(--muted); font-weight: 600;
+  letter-spacing: .03em; text-transform: uppercase;
+}
+.filter-select {
+  background: var(--bg) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
+  border-radius: 8px; padding: 7px 10px; cursor: pointer;
+  font-size: .85rem;
+}
+.filter-range {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; border-radius: 99px;
+  background: var(--border); outline: none; cursor: pointer;
+}
+.filter-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--accent); cursor: pointer;
+}
+/* Active filter chip */
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(99,102,241,.18); border: 1px solid rgba(99,102,241,.35);
+  color: var(--accent2); padding: 3px 10px 3px 12px;
+  border-radius: 99px; font-size: .75rem; font-weight: 600; cursor: pointer;
+}
+.filter-chip:hover { background: rgba(99,102,241,.28); }
 </style>
 </head>
 <body>
@@ -346,28 +400,102 @@ html, body {
 
   <!-- ── LIBRARY VIEW ─────────────────────────── -->
   <div id="view-library" class="view active">
+
+    <!-- Top search row -->
     <div class="search-bar">
       <input type="search" id="search-input" placeholder="🔍  Search titles, cast, genre…" autocomplete="off"
              oninput="Library.onSearchInput()">
-      <select id="format-filter" onchange="Library.reload()">
-        <option value="">All Formats</option>
-        <option>DVD</option>
-        <option>Blu-Ray</option>
-        <option>4K UHD</option>
-        <option>Other</option>
-      </select>
       <select id="sort-select" onchange="Library.reload()">
         <option value="movieName">A–Z</option>
         <option value="dateAdded">Newest</option>
         <option value="year">Year</option>
-        <option value="imdbRating">Rating</option>
+        <option value="imdbRating">IMDB Rating</option>
         <option value="pp">Price Paid</option>
       </select>
+      <button id="btn-filter-toggle" class="view-toggle-btn" onclick="Library.toggleFilters()" title="Filters">
+        <i class="bi bi-funnel-fill"></i>
+        <span id="filter-badge" class="filter-badge" style="display:none">●</span>
+      </button>
       <div class="view-toggle">
         <button id="btn-grid" class="active" onclick="Library.setMode('grid')" title="Grid"><i class="bi bi-grid-3x3-gap-fill"></i></button>
         <button id="btn-list" onclick="Library.setMode('list')" title="List"><i class="bi bi-list-ul"></i></button>
       </div>
     </div>
+
+    <!-- Collapsible advanced filter panel -->
+    <div id="filter-panel" style="display:none;margin-bottom:14px">
+      <div class="filter-panel-inner">
+        <div class="filter-row">
+          <!-- Format -->
+          <div class="filter-group">
+            <label class="filter-label">Format</label>
+            <select id="format-filter" class="filter-select" onchange="Library.reload()">
+              <option value="">All Formats</option>
+              <option>DVD</option>
+              <option>Blu-Ray</option>
+              <option>4K UHD</option>
+              <option>Other</option>
+            </select>
+          </div>
+          <!-- Genre -->
+          <div class="filter-group">
+            <label class="filter-label">Genre</label>
+            <select id="genre-filter" class="filter-select" onchange="Library.reload()">
+              <option value="">All Genres</option>
+            </select>
+          </div>
+          <!-- Age Rating -->
+          <div class="filter-group">
+            <label class="filter-label">Age Rating</label>
+            <select id="rating-filter" class="filter-select" onchange="Library.reload()">
+              <option value="">Any Rating</option>
+            </select>
+          </div>
+          <!-- Place of Purchase -->
+          <div class="filter-group">
+            <label class="filter-label">Purchased At</label>
+            <select id="pop-filter" class="filter-select" onchange="Library.reload()">
+              <option value="">Any Store</option>
+            </select>
+          </div>
+        </div>
+        <div class="filter-row" style="margin-top:10px">
+          <!-- Min IMDB -->
+          <div class="filter-group">
+            <label class="filter-label">Min IMDB <span id="imdb-val">Any</span></label>
+            <input type="range" id="imdb-filter" min="0" max="10" step="0.5" value="0"
+                   class="filter-range" oninput="Library.onRangeInput('imdb-val',this.value,'imdb-filter')" onchange="Library.reload()">
+          </div>
+          <!-- Year from -->
+          <div class="filter-group">
+            <label class="filter-label">Year From <span id="year-min-val">Any</span></label>
+            <input type="range" id="year-min-filter" min="1950" max="2030" step="1" value="1950"
+                   class="filter-range" oninput="Library.onRangeInput('year-min-val',this.value,'year-min-filter')" onchange="Library.reload()">
+          </div>
+          <!-- Year to -->
+          <div class="filter-group">
+            <label class="filter-label">Year To <span id="year-max-val">Any</span></label>
+            <input type="range" id="year-max-filter" min="1950" max="2030" step="1" value="2030"
+                   class="filter-range" oninput="Library.onRangeInput('year-max-val',this.value,'year-max-filter')" onchange="Library.reload()">
+          </div>
+          <!-- Poster only -->
+          <div class="filter-group" style="justify-content:flex-end;align-items:center;display:flex;gap:8px;padding-top:16px">
+            <label class="filter-label" style="margin:0">Posters only</label>
+            <input type="checkbox" id="poster-filter" onchange="Library.reload()"
+                   style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer">
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;justify-content:flex-end">
+          <button onclick="Library.clearFilters()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:5px 14px;border-radius:8px;cursor:pointer;font-size:.8rem">
+            <i class="bi bi-x-circle"></i> Clear Filters
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active filter chips -->
+    <div id="active-chips" style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px"></div>
+
     <div id="movie-container">
       <div style="text-align:center;padding:60px;color:var(--muted)">
         <div class="spinner-border text-primary"></div>
@@ -708,6 +836,8 @@ const App = {
 // ════════════════════════════════════════════════
 const Library = {
   searchTimer: null,
+  filtersOpen: false,
+  filterOptions: null,
 
   onSearchInput() {
     clearTimeout(this.searchTimer);
@@ -721,18 +851,146 @@ const Library = {
     this.render();
   },
 
+  async loadFilterOptions() {
+    if (this.filterOptions) return;
+    try {
+      const f = await apiCall('/filters');
+      this.filterOptions = f;
+
+      const genreSel = document.getElementById('genre-filter');
+      f.genres.forEach(g => {
+        const o = document.createElement('option'); o.value = g; o.textContent = g;
+        genreSel.appendChild(o);
+      });
+
+      const ratingSel = document.getElementById('rating-filter');
+      f.ratings.forEach(r => {
+        const o = document.createElement('option'); o.value = r; o.textContent = r;
+        ratingSel.appendChild(o);
+      });
+
+      const popSel = document.getElementById('pop-filter');
+      f.purchases.forEach(p => {
+        const o = document.createElement('option'); o.value = p; o.textContent = p;
+        popSel.appendChild(o);
+      });
+
+      if (f.yearRange) {
+        const minEl = document.getElementById('year-min-filter');
+        const maxEl = document.getElementById('year-max-filter');
+        minEl.min = maxEl.min = f.yearRange.min;
+        minEl.max = maxEl.max = f.yearRange.max;
+        minEl.value = f.yearRange.min;
+        maxEl.value = f.yearRange.max;
+      }
+    } catch (_) {}
+  },
+
+  async toggleFilters() {
+    this.filtersOpen = !this.filtersOpen;
+    document.getElementById('filter-panel').style.display = this.filtersOpen ? '' : 'none';
+    document.getElementById('btn-filter-toggle').classList.toggle('active', this.filtersOpen);
+    if (this.filtersOpen) await this.loadFilterOptions();
+  },
+
+  onRangeInput(labelId, val, inputId) {
+    const minYear = parseInt(document.getElementById('year-min-filter')?.min || 1950);
+    const maxYear = parseInt(document.getElementById('year-max-filter')?.max || 2030);
+    const isYear  = inputId.startsWith('year');
+    const isDefault = isYear
+      ? (inputId === 'year-min-filter' ? parseInt(val) <= minYear : parseInt(val) >= maxYear)
+      : parseFloat(val) <= 0;
+    document.getElementById(labelId).textContent = isDefault ? 'Any' : val;
+  },
+
+  getFilters() {
+    return {
+      search:      document.getElementById('search-input')?.value || '',
+      format:      document.getElementById('format-filter')?.value || '',
+      genre:       document.getElementById('genre-filter')?.value || '',
+      ageRating:   document.getElementById('rating-filter')?.value || '',
+      purchasedAt: document.getElementById('pop-filter')?.value || '',
+      sort:        document.getElementById('sort-select')?.value || 'movieName',
+      minImdb:     (() => { const v = parseFloat(document.getElementById('imdb-filter')?.value||0); return v > 0 ? v : ''; })(),
+      minYear:     (() => {
+        const el = document.getElementById('year-min-filter');
+        if (!el) return '';
+        const v = parseInt(el.value); return v > parseInt(el.min) ? v : '';
+      })(),
+      maxYear:     (() => {
+        const el = document.getElementById('year-max-filter');
+        if (!el) return '';
+        const v = parseInt(el.value); return v < parseInt(el.max) ? v : '';
+      })(),
+      posterOnly:  document.getElementById('poster-filter')?.checked || false,
+    };
+  },
+
+  clearFilters() {
+    document.getElementById('search-input').value = '';
+    document.getElementById('format-filter').value = '';
+    document.getElementById('genre-filter').value = '';
+    document.getElementById('rating-filter').value = '';
+    document.getElementById('pop-filter').value = '';
+    document.getElementById('imdb-filter').value = 0;
+    document.getElementById('poster-filter').checked = false;
+    const minEl = document.getElementById('year-min-filter');
+    const maxEl = document.getElementById('year-max-filter');
+    if (minEl) { minEl.value = minEl.min; document.getElementById('year-min-val').textContent = 'Any'; }
+    if (maxEl) { maxEl.value = maxEl.max; document.getElementById('year-max-val').textContent = 'Any'; }
+    document.getElementById('imdb-val').textContent = 'Any';
+    this.reload();
+  },
+
+  updateChips(filters) {
+    const container = document.getElementById('active-chips');
+    const chips = [];
+    if (filters.format)      chips.push([`Format: ${filters.format}`,   'format-filter']);
+    if (filters.genre)       chips.push([`Genre: ${filters.genre}`,     'genre-filter']);
+    if (filters.ageRating)   chips.push([`Rated: ${filters.ageRating}`, 'rating-filter']);
+    if (filters.purchasedAt) chips.push([`Store: ${filters.purchasedAt}`,'pop-filter']);
+    if (filters.minImdb)     chips.push([`IMDB ≥ ${filters.minImdb}`,   'imdb-filter']);
+    if (filters.minYear)     chips.push([`From ${filters.minYear}`,      'year-min-filter']);
+    if (filters.maxYear)     chips.push([`To ${filters.maxYear}`,        'year-max-filter']);
+    container.innerHTML = chips.map(([label, id]) =>
+      `<span class="filter-chip" onclick="Library.clearChip('${id}')">${h(label)} ✕</span>`
+    ).join('');
+    const badge = document.getElementById('filter-badge');
+    badge.style.display = chips.length ? '' : 'none';
+  },
+
+  clearChip(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.tagName === 'SELECT') el.value = '';
+    else if (el.type === 'range') {
+      el.value = id.includes('max') ? el.max : el.min;
+      const valId = id === 'year-min-filter' ? 'year-min-val' : id === 'year-max-filter' ? 'year-max-val' : 'imdb-val';
+      document.getElementById(valId).textContent = 'Any';
+    }
+    this.reload();
+  },
+
   async reload() {
-    const search = document.getElementById('search-input').value;
-    const format = document.getElementById('format-filter').value;
-    const sort   = document.getElementById('sort-select').value;
+    const f = this.getFilters();
+    this.updateChips(f);
 
     const p = new URLSearchParams();
-    if (search) p.set('search', search);
-    if (format) p.set('format', format);
-    if (sort)   p.set('sort', sort);
+    if (f.search)      p.set('search',      f.search);
+    if (f.format)      p.set('format',      f.format);
+    if (f.genre)       p.set('genre',       f.genre);
+    if (f.ageRating)   p.set('ageRating',   f.ageRating);
+    if (f.purchasedAt) p.set('purchasedAt', f.purchasedAt);
+    if (f.sort)        p.set('sort',        f.sort);
+    if (f.minImdb)     p.set('minImdb',     f.minImdb);
+    if (f.minYear)     p.set('minYear',     f.minYear);
+    if (f.maxYear)     p.set('maxYear',     f.maxYear);
 
     try {
-      S.movies = await apiCall('/movies?' + p.toString());
+      let movies = await apiCall('/movies?' + p.toString());
+      // client-side poster filter (no extra round-trip)
+      if (f.posterOnly) movies = movies.filter(m => m.localPoster || m.coverImage);
+      S.movies = movies;
       document.getElementById('movie-count-badge').textContent =
         S.movies.length + (S.movies.length === 1 ? ' title' : ' titles');
       this.render();
@@ -741,10 +999,15 @@ const Library = {
     }
   },
 
+  posterSrc(m) {
+    // Prefer local cached file, fall back to remote URL
+    return m.localPoster || m.coverImage || '';
+  },
+
   render() {
     const c = document.getElementById('movie-container');
     if (!S.movies.length) {
-      c.innerHTML = `<div class="empty-state"><i class="bi bi-collection-play"></i><h5>No movies yet</h5><p>Add your first disc or scan a barcode</p><button class="btn-accent" onclick="App.showAddForm()">+ Add Movie</button></div>`;
+      c.innerHTML = `<div class="empty-state"><i class="bi bi-collection-play"></i><h5>No movies found</h5><p>Try adjusting your filters or add a new disc</p><button class="btn-accent" onclick="Library.clearFilters()">Clear Filters</button></div>`;
       return;
     }
     if (S.viewMode === 'grid') {
@@ -755,10 +1018,11 @@ const Library = {
   },
 
   cardHtml(m) {
-    const poster = m.coverImage
-      ? `<img class="poster" src="${h(m.coverImage)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+    const src = this.posterSrc(m);
+    const poster = src
+      ? `<img class="poster" src="${h(src)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
       : '';
-    const ph = `<div class="poster-placeholder" ${m.coverImage ? 'style="display:none"' : ''}>🎬</div>`;
+    const ph = `<div class="poster-placeholder" ${src ? 'style="display:none"' : ''}>🎬</div>`;
     return `<div class="movie-card" onclick="Detail.show(${m.id})">
       ${poster}${ph}
       <div class="movie-card-info">
@@ -772,8 +1036,9 @@ const Library = {
   },
 
   listRowHtml(m) {
-    const thumb = m.coverImage
-      ? `<img class="list-thumb" src="${h(m.coverImage)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="list-thumb-ph" style="display:none">🎬</div>`
+    const src = this.posterSrc(m);
+    const thumb = src
+      ? `<img class="list-thumb" src="${h(src)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="list-thumb-ph" style="display:none">🎬</div>`
       : `<div class="list-thumb-ph">🎬</div>`;
     return `<div class="movie-list-item" onclick="Detail.show(${m.id})">
       ${thumb}
@@ -783,12 +1048,16 @@ const Library = {
         <div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           ${fmtBadge(m.format)}
           ${m.genre ? `<span style="font-size:.7rem;color:var(--muted)">${h(m.genre.split(',')[0].trim())}</span>` : ''}
+          ${m.rating ? `<span style="font-size:.7rem;color:var(--warning)">${h(m.rating)}</span>` : ''}
         </div>
       </div>
       ${m.imdbRating ? `<span class="imdb-pill ms-1">⭐ ${h(m.imdbRating)}</span>` : ''}
     </div>`;
   },
 };
+
+// ════════════════════════════════════════════════
+// SCANNER
 
 // ════════════════════════════════════════════════
 // SCANNER

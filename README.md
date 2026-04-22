@@ -251,3 +251,135 @@ OMDB API ──found──▶ Pre-fill form with full metadata
 **DB connection refused**
 → In docker-compose setup, the backend waits for the DB healthcheck.
    `docker compose logs db` to check MariaDB status.
+
+---
+
+## Poster Image Caching
+
+By default the app links directly to OMDB poster URLs. The `fetch-posters.js`
+script downloads every poster locally so the library loads faster, works
+offline, and won't break if OMDB CDN URLs change.
+
+### Run the script
+
+```bash
+# From the project root (backend/.env or .env must be configured)
+cd /opt/dvd-library
+
+# First time — download all missing posters
+node scripts/fetch-posters.js
+
+# Re-download everything (e.g. after replacing bad images)
+node scripts/fetch-posters.js --force
+
+# Preview what would be fetched without downloading
+node scripts/fetch-posters.js --dry-run
+
+# Fetch poster for a single movie by DB id
+node scripts/fetch-posters.js --id 42
+```
+
+Images are saved to `frontend/posters/<id>.jpg` and the `localPoster` column
+is updated in the database. The app automatically prefers the local file over
+the remote URL once it is cached.
+
+### Existing databases — run the migration first
+
+If your database was created before this update, add the `localPoster` column:
+
+```bash
+mysql -u dvdlib -p dvdlibrary < scripts/migrate-add-localposter.sql
+```
+
+---
+
+## Running as a Linux Service (systemd)
+
+### Install
+
+```bash
+# 1. Make sure your .env is configured in the project root or backend/
+#    (the installer will copy it to /etc/dvd-library/env)
+
+sudo bash systemd/install-service.sh
+```
+
+The script will:
+- Create a locked-down `dvdlib` system user
+- Copy the app to `/opt/dvd-library`
+- Install Node dependencies
+- Write `/etc/dvd-library/env` (secrets stored outside the app directory)
+- Install and enable `dvd-library.service`
+- Start the service immediately (if `.env` contains real values)
+
+### Daily management
+
+```bash
+sudo systemctl status  dvd-library       # is it running?
+sudo systemctl restart dvd-library       # restart after config change
+sudo systemctl stop    dvd-library       # stop
+sudo journalctl -u dvd-library -f        # live log tail
+
+# Or use the helper script:
+sudo bash systemd/manage-service.sh logs
+sudo bash systemd/manage-service.sh update     # sync new files & restart
+sudo bash systemd/manage-service.sh uninstall  # clean removal
+```
+
+### Non-Docker install path (full manual)
+
+```bash
+# 1. Install Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# 2. Install MariaDB
+sudo apt install -y mariadb-server
+sudo mysql_secure_installation
+
+# 3. Create DB & user
+sudo mariadb -u root -p << SQL
+CREATE DATABASE dvdlibrary CHARACTER SET utf8mb4;
+CREATE USER 'dvdlib'@'localhost' IDENTIFIED BY 'your_password';
+GRANT ALL ON dvdlibrary.* TO 'dvdlib'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+
+# 4. Load schema
+mariadb -u dvdlib -p dvdlibrary < schema.sql
+
+# 5. Configure env
+cp backend/.env.example .env
+nano .env   # set DB_PASS, OMDB_API_KEY
+
+# 6. Install & start service
+sudo bash systemd/install-service.sh
+```
+
+---
+
+## Project Structure (updated)
+
+```
+dvd-library/
+├── README.md
+├── schema.sql                    ← DB schema (includes localPoster)
+├── docker-compose.yml
+├── .env                          ← create from backend/.env.example
+├── backend/
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── server.js                 ← REST API + /api/filters endpoint
+│   └── .env.example
+├── frontend/
+│   ├── index.html                ← PWA with advanced filter panel
+│   ├── manifest.json
+│   └── posters/                  ← locally cached poster images (git-ignored)
+├── scripts/
+│   ├── fetch-posters.js          ← one-time/repeatable poster downloader
+│   └── migrate-add-localposter.sql
+└── systemd/
+    ├── dvd-library.service       ← systemd unit file
+    ├── install-service.sh        ← installs & enables the service
+    └── manage-service.sh         ← update / uninstall / logs helper
+```

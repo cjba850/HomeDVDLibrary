@@ -1,0 +1,48 @@
+[Unit]
+Description=DVD / Blu-Ray Library Web App
+Documentation=https://github.com/cjba850/HomeDVDLibrary
+After=network.target mariadb.service mysql.service
+Wants=mariadb.service mysql.service
+
+[Service]
+# ── Identity ──────────────────────────────────────────────────────────────────
+# Change 'dvdlib' to whatever user you want the process to run as.
+# That user must have read access to the app directory.
+User=dvdlib
+Group=dvdlib
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+# Set this to wherever you cloned/extracted the project.
+WorkingDirectory=/opt/dvd-library/backend
+
+# ── Environment ───────────────────────────────────────────────────────────────
+# Load secrets from a separate env file so they never appear in journalctl logs.
+# Create /etc/dvd-library/env from backend/.env.example
+EnvironmentFile=/etc/dvd-library/env
+
+# ── Start / Stop ──────────────────────────────────────────────────────────────
+ExecStart=/usr/bin/node /opt/dvd-library/backend/server.js
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=10s
+
+# ── Resource limits (optional tuning) ────────────────────────────────────────
+# Uncomment to cap resource usage on a busy shared host:
+# CPUQuota=40%
+# MemoryMax=256M
+
+# ── Security hardening ────────────────────────────────────────────────────────
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/opt/dvd-library/frontend/posters
+ProtectHome=read-only
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dvd-library
+
+[Install]
+WantedBy=multi-user.target

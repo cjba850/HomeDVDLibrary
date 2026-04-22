@@ -16,6 +16,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend')));
+app.use('/posters', express.static(path.join(__dirname, '../frontend/posters')));
 
 // ── DB Connection Pool ────────────────────────────────────────────────────────
 const pool = mysql.createPool({
@@ -33,6 +34,7 @@ const pool = mysql.createPool({
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const MOVIE_FIELDS = [
   'barcode','movieName','actors','director','genre','year','runtime',
+  'localPoster',
   'plot','coverImage','format','pop','rrp','pp','rating','comments',
   'imdbId','imdbRating','language','country','studio','location'
 ];
@@ -99,13 +101,20 @@ app.get('/api/movies', async (req, res) => {
     let sql = 'SELECT * FROM movies WHERE 1=1';
     const params = [];
 
+    const { minImdb, maxYear, minYear, ageRating, purchasedAt } = req.query;
+
     if (search) {
       sql += ' AND (movieName LIKE ? OR actors LIKE ? OR director LIKE ? OR genre LIKE ?)';
       const like = `%${search}%`;
       params.push(like, like, like, like);
     }
-    if (format) { sql += ' AND format = ?'; params.push(format); }
-    if (genre)  { sql += ' AND genre LIKE ?'; params.push(`%${genre}%`); }
+    if (format)     { sql += ' AND format = ?';                          params.push(format); }
+    if (genre)      { sql += ' AND genre LIKE ?';                        params.push(`%${genre}%`); }
+    if (ageRating)  { sql += ' AND rating = ?';                          params.push(ageRating); }
+    if (purchasedAt){ sql += ' AND pop LIKE ?';                          params.push(`%${purchasedAt}%`); }
+    if (minImdb)    { sql += ' AND CAST(imdbRating AS DECIMAL(3,1)) >= ?'; params.push(parseFloat(minImdb)); }
+    if (minYear)    { sql += ' AND CAST(year AS UNSIGNED) >= ?';          params.push(parseInt(minYear)); }
+    if (maxYear)    { sql += ' AND CAST(year AS UNSIGNED) <= ?';          params.push(parseInt(maxYear)); }
 
     sql += ` ORDER BY ${orderBy}`;
 
@@ -296,6 +305,42 @@ app.get('/api/stats', async (req, res) => {
       "SELECT ROUND(AVG(CAST(REPLACE(pp,'$','') AS DECIMAL(8,2))),2) AS avgPaid FROM movies WHERE pp != '' AND pp REGEXP '^\\\\$?[0-9]'");
 
     res.json({ total, formats, genres, decades, avgImdb, avgPaid });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
+// ── Filter Options (for dropdowns) ───────────────────────────────────────────
+app.get('/api/filters', async (req, res) => {
+  try {
+    // Distinct age ratings
+    const [ratings] = await pool.execute(
+      "SELECT DISTINCT rating FROM movies WHERE rating != '' ORDER BY rating");
+
+    // Distinct genres (split comma-separated values)
+    const [genres] = await pool.execute(`
+      SELECT DISTINCT TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(genre, ',', n.n), ',', -1)) AS g
+      FROM movies
+      CROSS JOIN (SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6) n
+      WHERE CHAR_LENGTH(genre) - CHAR_LENGTH(REPLACE(genre, ',', '')) >= n.n - 1
+        AND genre != ''
+      ORDER BY g`);
+
+    // Year range
+    const [[yearRange]] = await pool.execute(
+      "SELECT MIN(CAST(year AS UNSIGNED)) AS minYear, MAX(CAST(year AS UNSIGNED)) AS maxYear FROM movies WHERE year REGEXP '^[0-9]{4}$'");
+
+    // Place of purchase options
+    const [purchases] = await pool.execute(
+      "SELECT DISTINCT pop FROM movies WHERE pop != '' ORDER BY pop");
+
+    res.json({
+      ratings:   ratings.map(r => r.rating),
+      genres:    genres.map(g => g.g).filter(Boolean),
+      yearRange: { min: yearRange?.minYear || 1970, max: yearRange?.maxYear || new Date().getFullYear() },
+      purchases: purchases.map(p => p.pop),
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

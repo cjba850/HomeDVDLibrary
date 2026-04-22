@@ -8,6 +8,7 @@ backend/.env
 # OS noise
 .DS_Store
 Thumbs.db
+:Zone.Identifier
 
 # Logs
 *.log

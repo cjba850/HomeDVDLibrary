@@ -148,7 +148,9 @@ html, body {
   border-color: var(--accent);
 }
 .movie-card img.poster {
-  width: 100%; aspect-ratio: 2/3; object-fit: cover;
+  width: 100%; aspect-ratio: 2/3;
+  object-fit: cover; object-position: center top;
+  display: block; overflow: hidden;
 }
 .poster-placeholder {
   width: 100%; aspect-ratio: 2/3;
@@ -289,7 +291,10 @@ html, body {
   border: 1px solid var(--border) !important;
 }
 #detail-poster {
-  width: 110px; border-radius: 10px; flex-shrink: 0;
+  width: 110px; height: 160px;
+  border-radius: 10px; flex-shrink: 0;
+  object-fit: cover; object-position: center top;
+  display: block;
 }
 #detail-poster-ph {
   width: 110px; height: 160px; border-radius: 10px; flex-shrink: 0;
@@ -1000,7 +1005,8 @@ const App = {
     document.getElementById('f-id').value = '';
     document.getElementById('cover-preview-img').style.display = 'none';
     document.getElementById('omdb-results').innerHTML = '';
-    document.getElementById('omdb-q').value = '';
+    // If we have a title from a barcode scan, pre-populate OMDB search
+    document.getElementById('omdb-q').value = (prefill && prefill.movieName) ? prefill.movieName : '';
     if (prefill) Form.populate(prefill);
     this.showView('form');
   },
@@ -1230,78 +1236,6 @@ const Library = {
     </div>`;
   },
 };
-
-
-// ════════════════════════════════════════════════
-// DUPLICATE CHECKER
-// Shared utility — called from Scanner and Form
-// ════════════════════════════════════════════════
-const DupChecker = {
-  // Returns HTML string for a warning block, or '' if no matches.
-  // onViewId  — JS expression called with match id when user clicks "View"
-  // onAddAnyway — JS expression called when user dismisses warning
-  async check(title, { year = '', imdbId = '', excludeId = null } = {}) {
-    if (!title) return { html: '', matches: [] };
-    try {
-      const params = new URLSearchParams({ title });
-      if (year)      params.set('year',      year);
-      if (imdbId)    params.set('imdbId',    imdbId);
-      if (excludeId) params.set('excludeId', excludeId);
-      const r = await apiCall('/similar?' + params.toString());
-      if (!r.count) return { html: '', matches: [] };
-      return { html: this.buildHtml(r.matches), matches: r.matches };
-    } catch (_) {
-      return { html: '', matches: [] };
-    }
-  },
-
-  confLabel(c) {
-    const map = {
-      exact:    ['Exact match',    'conf-exact'],
-      imdbId:   ['Same IMDB ID',   'conf-exact'],
-      high:     ['Very similar',   'conf-high'],
-      soundex:  ['Sounds alike',   'conf-soundex'],
-      possible: ['Possible match', 'conf-possible'],
-    };
-    return map[c] || ['Similar', 'conf-possible'];
-  },
-
-  buildHtml(matches) {
-    const rows = matches.map(m => {
-      const src = m.localPoster || m.coverImage || '';
-      const thumb = src
-        ? `<img class="dup-thumb" src="${h(src)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"><div class="dup-thumb-ph" style="display:none">🎬</div>`
-        : `<div class="dup-thumb-ph">🎬</div>`;
-      const [label, cls] = this.confLabel(m.confidence);
-      return `<div class="dup-match-row" onclick="Detail.showFromId(${m.id})">
-        ${thumb}
-        <div style="flex:1;min-width:0">
-          <div style="font-size:.84rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(m.movieName)}</div>
-          <div style="font-size:.74rem;color:var(--muted)">${h(m.year||'')}${m.director ? ' · '+h(m.director) : ''}${m.format ? ' · '+h(m.format) : ''}</div>
-        </div>
-        <span class="conf-label ${cls}">${label}</span>
-      </div>`;
-    }).join('');
-
-    return `<div class="dup-warning" id="dup-warning-block">
-      <div class="dup-warning-title">⚠ Possible duplicate${matches.length > 1 ? 's' : ''} already in your library</div>
-      ${rows}
-      <div style="margin-top:10px;display:flex;justify-content:flex-end">
-        <button onclick="DupChecker.dismiss()" style="background:none;border:1px solid var(--border);color:var(--muted);padding:4px 12px;border-radius:7px;cursor:pointer;font-size:.78rem">
-          Not a duplicate — continue anyway
-        </button>
-      </div>
-    </div>`;
-  },
-
-  dismiss() {
-    const el = document.getElementById('dup-warning-block');
-    if (el) el.remove();
-  },
-};
-
-// ════════════════════════════════════════════════
-// SCANNER
 
 
 // ════════════════════════════════════════════════
@@ -1670,8 +1604,8 @@ const Detail = {
   },
 
   buildHtml(m) {
-    const posterEl = m.coverImage
-      ? `<img id="detail-poster" src="${h(m.coverImage)}" alt="">`
+    const posterEl = (m.localPoster || m.coverImage)
+      ? `<img id="detail-poster" src="${h(m.localPoster || m.coverImage)}" alt="">`
       : `<div id="detail-poster-ph">🎬</div>`;
 
     const rows = [
@@ -1739,7 +1673,8 @@ const Detail = {
     document.getElementById('movie-form').reset();
     document.getElementById('f-id').value = m.id;
     document.getElementById('omdb-results').innerHTML = '';
-    document.getElementById('omdb-q').value = '';
+    // Pre-populate OMDB search with the current title so one tap searches it
+    document.getElementById('omdb-q').value = m.movieName || '';
     Form.populate(m);
     App.showView('form');
     // Nav highlight form

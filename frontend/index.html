@@ -294,12 +294,40 @@ html, body {
   width: 110px; height: 160px;
   border-radius: 10px; flex-shrink: 0;
   object-fit: cover; object-position: center top;
-  display: block;
+  display: block; cursor: pointer;
+  transition: opacity .2s;
 }
+#detail-poster:hover { opacity: .8; }
 #detail-poster-ph {
   width: 110px; height: 160px; border-radius: 10px; flex-shrink: 0;
-  background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 3rem;
+  background: var(--bg); display: flex; align-items: center;
+  justify-content: center; font-size: 3rem;
+  cursor: pointer; transition: background .2s; border: 2px dashed var(--border);
 }
+#detail-poster-ph:hover { background: rgba(99,102,241,.1); border-color: var(--accent); }
+.poster-action-bar {
+  display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;
+}
+.poster-action-btn {
+  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+  color: var(--muted); padding: 5px 8px; border-radius: 8px; cursor: pointer;
+  font-size: .72rem; font-weight: 600; text-align: center; transition: all .15s;
+  white-space: nowrap;
+}
+.poster-action-btn:hover { border-color: var(--accent); color: var(--accent); }
+.poster-action-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
+/* Camera capture overlay */
+#camera-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.92);
+  z-index: 9999; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px;
+  padding: 20px;
+}
+#camera-video {
+  max-width: 100%; max-height: 60vh;
+  border-radius: 12px; border: 2px solid var(--accent);
+}
+#camera-canvas { display: none; }
 
 /* ═══════════════════════════════════════════════
    TOAST
@@ -905,6 +933,23 @@ html, body {
       </div>
     </div>
   </div>
+</div>
+
+<!-- Camera capture overlay -->
+<div id="camera-overlay" style="display:none">
+  <video id="camera-video" autoplay playsinline muted></video>
+  <canvas id="camera-canvas"></canvas>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+    <button class="btn-accent" onclick="PosterCam.capture()" style="min-width:140px">
+      <i class="bi bi-camera-fill"></i> Capture
+    </button>
+    <button class="btn btn-outline-secondary" onclick="PosterCam.closeCamera()" style="min-width:100px">
+      Cancel
+    </button>
+  </div>
+  <p style="color:var(--muted);font-size:.8rem;text-align:center;margin:0">
+    Position the disc cover in frame, then tap Capture
+  </p>
 </div>
 
 <!-- Confirm Delete Modal -->
@@ -1622,9 +1667,22 @@ const Detail = {
   },
 
   buildHtml(m) {
-    const posterEl = (m.localPoster || m.coverImage)
-      ? `<img id="detail-poster" src="${h(m.localPoster || m.coverImage)}" alt="">`
-      : `<div id="detail-poster-ph">🎬</div>`;
+    const hasPoster = !!(m.localPoster || m.coverImage);
+    const posterEl = hasPoster
+      ? `<img id="detail-poster" src="${h(m.localPoster || m.coverImage)}" alt=""
+             onclick="PosterCam.prompt(${m.id}, true)"
+             title="Tap to replace or delete poster">`
+      : `<div id="detail-poster-ph" onclick="PosterCam.prompt(${m.id}, false)"
+             title="Tap to take a photo">📷</div>`;
+    const posterActions = `
+      <div class="poster-action-bar">
+        <button class="poster-action-btn" onclick="PosterCam.openCamera(${m.id})">
+          <i class="bi bi-camera-fill"></i> Camera
+        </button>
+        ${hasPoster
+          ? '<button class="poster-action-btn danger" onclick="PosterCam.deletePoster(' + m.id + ')"><i class="bi bi-trash3"></i> Delete</button>'
+          : ''}
+      </div>`;
 
     const rows = [
       m.format    && ['Format',   fmtBadge(m.format)],
@@ -1661,7 +1719,7 @@ const Detail = {
         Currently on loan to <strong>${h(m.loanedTo)}</strong> since ${new Date(m.loanedDate).toLocaleDateString()}
       </div>` : ''}
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">
-        ${posterEl}
+        <div style="flex-shrink:0">${posterEl}${posterActions}</div>
         <div style="flex:1;min-width:160px">
           ${rows.map(([k,v]) => `
             <div style="display:flex;gap:10px;margin-bottom:6px;font-size:.85rem">
@@ -2020,31 +2078,30 @@ const Batch = {
           </label>
           <input id="batch-offset-input" type="number" class="form-control"
                  value="1" min="1" step="1" placeholder="1"
-                 title="Skip the first N−1 candidates and begin from record N">
+                 title="Skip the first N-1 candidates and begin from record N">
         </div>
       </div>
       <div id="batch-preview-area" style="margin-bottom:16px"></div>
       <button class="btn-accent" style="width:100%" onclick="Batch.start()">
         <i class="bi bi-magic"></i> Start Batch Enrich
       </button>`;
-    // Load candidate count in background so user can see what they're working with
     Batch.previewCount();
     this.modal.show();
   },
 
   async start() {
-    const missing     = document.getElementById('batch-missing-select')?.value || 'any';
-    const limit       = document.getElementById('batch-limit-select')?.value   || '50';
-    const startAt     = Math.max(parseInt(document.getElementById('batch-offset-input')?.value || '1', 10), 1);
-    const offset      = startAt - 1;   // UI is 1-based, API is 0-based
+    const missing = document.getElementById('batch-missing-select')?.value || 'any';
+    const limit   = document.getElementById('batch-limit-select')?.value   || '50';
+    const startAt = Math.max(parseInt(document.getElementById('batch-offset-input')?.value || '1', 10), 1);
+    const offset  = startAt - 1;   // UI is 1-based, API is 0-based
     document.getElementById('batch-modal-body').innerHTML =
       '<div style="text-align:center;padding:40px"><div class="spinner-border text-primary"></div><p style="margin-top:12px;color:var(--muted)">Finding candidates…</p></div>';
     try {
       const r = await apiCall(`/batch/candidates?missing=${missing}&limit=${limit}&offset=${offset}`);
       this.candidates      = r.candidates;
       this.total           = r.candidates.length;
-      this.totalCandidates = r.totalCandidates;   // grand total (ignoring limit/offset)
-      this.startOffset     = offset;               // remember for display
+      this.totalCandidates = r.totalCandidates;
+      this.startOffset     = offset;
       this.current         = 0;
       if (!this.total) {
         document.getElementById('batch-modal-body').innerHTML =
@@ -2085,9 +2142,6 @@ const Batch = {
   renderConfirm(r) {
     const { movie, omdbData, omdbResults, similar } = r;
     const pct = Math.round(this.current / this.total * 100);
-    // Global position = offset + current (1-based for display)
-    const globalPos = (this.startOffset || 0) + this.current + 1;
-    const globalTotal = this.totalCandidates || this.total;
 
     const poster  = omdbData?.Poster && omdbData.Poster !== 'N/A' ? omdbData.Poster : '';
     const posterEl = poster
@@ -2126,13 +2180,7 @@ const Batch = {
 
     document.getElementById('batch-modal-body').innerHTML = `
       <div class="enrich-progress"><div class="enrich-progress-fill" style="width:${pct}%"></div></div>
-      <div style="font-size:.75rem;color:var(--muted);margin-bottom:12px">
-        Record <strong style="color:var(--text)">${globalPos}</strong> of ${globalTotal}
-        <span style="margin:0 6px">·</span>
-        This session: ${this.current+1}/${this.total}
-        <span style="margin:0 6px">·</span>
-        ✓ ${this.updated} updated · ⟳ ${this.skipped} skipped
-      </div>
+      <div style="font-size:.75rem;color:var(--muted);margin-bottom:12px">${this.current+1} of ${this.total} · ✓ ${this.updated} updated · ⟳ ${this.skipped} skipped</div>
 
       ${dupWarn}
 
@@ -2238,7 +2286,7 @@ const Batch = {
 
   stop() { this.stopped = true; },
 
-  // Called when "What to enrich" changes — fetches total count and populates hint
+  // Fetch total candidate count for the selected filter and show hint + tip
   async previewCount() {
     const missing = document.getElementById('batch-missing-select')?.value || 'any';
     const hintEl  = document.getElementById('batch-total-hint');
@@ -2246,19 +2294,18 @@ const Batch = {
     if (!hintEl) return;
     hintEl.textContent = '…';
     try {
-      // Fetch with limit=1 just to get totalCandidates cheaply
-      const r = await apiCall(`/batch/candidates?missing=${missing}&limit=1&offset=0`);
+      const r = await apiCall('/batch/candidates?missing=' + missing + '&limit=1&offset=0');
       const n = r.totalCandidates || 0;
-      hintEl.textContent = n ? `(${n} total)` : '(none found)';
+      hintEl.textContent = n ? '(' + n + ' total)' : '(none found)';
       if (prevEl) {
         if (n === 0) {
-          prevEl.innerHTML = `<div style="color:var(--success);font-size:.85rem">✓ No candidates — nothing to enrich for this filter.</div>`;
+          prevEl.innerHTML = '<div style="color:var(--success);font-size:.85rem">&#10003; No candidates — nothing to enrich for this filter.</div>';
         } else {
-          prevEl.innerHTML = `<div style="background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:10px 14px;font-size:.83rem;color:var(--muted)">
-            <strong style="color:var(--text)">${n} records</strong> need enriching.
-            Set "Start at record" to <strong>1</strong> to begin from the top, or enter a higher number to skip records you've already reviewed.
-            After each session the app remembers nothing automatically — note the record number from the summary screen to resume next time.
-          </div>`;
+          prevEl.innerHTML = '<div style="background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:10px 14px;font-size:.83rem;color:var(--muted)">'
+            + '<strong style="color:var(--text)">' + n + ' records</strong> need enriching. '
+            + 'Set &ldquo;Start at record&rdquo; to <strong>1</strong> to begin from the top, '
+            + 'or a higher number to skip records already reviewed. '
+            + 'Note the number shown at the end of each session to resume next time.</div>';
         }
       }
     } catch (_) {
@@ -2267,6 +2314,17 @@ const Batch = {
   },
 
   showSummary() {
+    // Compute resume info BEFORE the template literal to avoid nested backtick issues
+    const nextRecord  = (this.startOffset || 0) + this.total + 1;
+    const remaining   = (this.totalCandidates || 0) - (this.startOffset || 0) - this.total;
+    const resumeHtml  = remaining > 0
+      ? '<div style="margin-top:16px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:12px;font-size:.84rem;text-align:left">'
+        + '<strong>Resume next session:</strong> set &ldquo;Start at record&rdquo; to <strong>' + nextRecord + '</strong>'
+        + ' <span style="color:var(--muted)">(' + remaining + ' records remaining)</span></div>'
+      : '<p style="margin-top:12px;font-size:.85rem;color:var(--success)">&#10003; All candidates reviewed!</p>';
+    const posterNote  = this.updated
+      ? '<p style="margin-top:12px;font-size:.85rem;color:var(--muted)">Run <code>node scripts/fetch-posters.js</code> to download any new poster images.</p>'
+      : '';
     document.getElementById('batch-modal-body').innerHTML = `
       <div style="text-align:center;padding:30px">
         <i class="bi bi-check-circle-fill" style="font-size:3rem;color:var(--success);display:block;margin-bottom:16px"></i>
@@ -2276,17 +2334,7 @@ const Batch = {
           <div><div style="font-size:2rem;font-weight:800;color:var(--muted)">${this.skipped}</div><div style="font-size:.8rem;color:var(--muted)">Skipped</div></div>
           <div><div style="font-size:2rem;font-weight:800;color:var(--accent)">${this.total}</div><div style="font-size:.8rem;color:var(--muted)">Reviewed</div></div>
         </div>
-        ${(() => {
-          const nextRecord = (this.startOffset || 0) + this.total + 1;
-          const remaining  = (this.totalCandidates || 0) - (this.startOffset || 0) - this.total;
-          return remaining > 0
-            ? \`<div style="margin-top:16px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:12px;font-size:.84rem;text-align:left">
-                <strong>Resume next session:</strong> set "Start at record" to <strong>\${nextRecord}</strong>
-                <span style="color:var(--muted);margin-left:6px">(\${remaining} records remaining)</span>
-              </div>\`
-            : '<p style="margin-top:12px;font-size:.85rem;color:var(--success)">✓ All candidates reviewed!</p>';
-        })()}
-        ${this.updated ? '<p style="margin-top:12px;font-size:.85rem;color:var(--muted)">Run <code>node scripts/fetch-posters.js</code> to download any new poster images.</p>' : ''}
+        ${resumeHtml}${posterNote}
       </div>`;
     document.getElementById('batch-modal-footer').innerHTML =
       `<button class="btn-accent" data-bs-dismiss="modal" onclick="Library.reload()">Done</button>`;
@@ -2295,39 +2343,146 @@ const Batch = {
 };
 
 // ════════════════════════════════════════════════
+// POSTER CAMERA
+// ════════════════════════════════════════════════
+const PosterCam = {
+  _stream:  null,
+  _movieId: null,
+
+  prompt(movieId, hasImage) {
+    // The action bar under the poster already shows the buttons;
+    // this is called when tapping the image/placeholder itself.
+    if (hasImage) {
+      this.openCamera(movieId);
+    } else {
+      this.openCamera(movieId);
+    }
+  },
+
+  async openCamera(movieId) {
+    this._movieId = movieId;
+    const overlay = document.getElementById('camera-overlay');
+    const video   = document.getElementById('camera-video');
+    try {
+      this._stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
+        audio: false,
+      });
+      video.srcObject = this._stream;
+      overlay.style.display = 'flex';
+    } catch (err) {
+      toast('Camera not available: ' + err.message, 'danger');
+    }
+  },
+
+  capture() {
+    const video  = document.getElementById('camera-video');
+    const canvas = document.getElementById('camera-canvas');
+    // Downscale to a sensible poster size (max 600px wide)
+    const scale  = Math.min(1, 600 / video.videoWidth);
+    canvas.width  = Math.round(video.videoWidth  * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = canvas.toDataURL('image/jpeg', 0.85);
+    this.closeCamera();
+    this.upload(imageData);
+  },
+
+  closeCamera() {
+    if (this._stream) {
+      this._stream.getTracks().forEach(t => t.stop());
+      this._stream = null;
+    }
+    document.getElementById('camera-overlay').style.display = 'none';
+    document.getElementById('camera-video').srcObject = null;
+  },
+
+  async upload(imageData) {
+    if (!this._movieId) return;
+    try {
+      toast('Saving poster…', 'primary');
+      const r = await apiCall('/movies/' + this._movieId + '/poster', {
+        method: 'POST',
+        body: JSON.stringify({ imageData }),
+      });
+      toast('✓ Poster saved', 'success');
+      // Refresh the detail modal poster immediately
+      const img = document.getElementById('detail-poster');
+      const ph  = document.getElementById('detail-poster-ph');
+      if (img) {
+        img.src = r.localPoster + '?t=' + Date.now(); // cache-bust
+      } else if (ph) {
+        // Replace placeholder with real image
+        ph.outerHTML = '<img id="detail-poster" src="' + r.localPoster + '?t=' + Date.now() + '" ' +
+          'onclick="PosterCam.prompt(' + this._movieId + ', true)" style="cursor:pointer">';
+      }
+      // Update the library card in the background
+      Library.reload();
+    } catch (err) {
+      toast('Poster upload failed: ' + err.message, 'danger');
+    }
+  },
+
+  async deletePoster(movieId) {
+    if (!confirm('Remove the poster image for this movie?')) return;
+    try {
+      await apiCall('/movies/' + movieId + '/poster', { method: 'DELETE' });
+      toast('Poster removed', 'warning');
+      // Swap image for placeholder in detail modal
+      const img = document.getElementById('detail-poster');
+      if (img) {
+        img.outerHTML = '<div id="detail-poster-ph" onclick="PosterCam.prompt(' + movieId + ', false)" ' +
+          'style="cursor:pointer" title="Tap to take a photo">📷</div>';
+      }
+      Library.reload();
+    } catch (err) {
+      toast('Delete failed: ' + err.message, 'danger');
+    }
+  },
+};
+
+// ════════════════════════════════════════════════
 // AUTH
 // ════════════════════════════════════════════════
 const Auth = {
-  // Set to true once /api/auth/me returns 200 (user is confirmed logged in).
-  // apiCall() uses this to decide whether a later 401 is a real session expiry.
-  verified: false,
+  // true once /api/auth/me returns 200 — used by apiCall() to distinguish
+  // "first visit" 401 from "session expired mid-use" 401.
+  verified:    false,
+  authEnabled: true,   // updated by init() from server response
 
   async init() {
     try {
-      // Fetch directly (not via apiCall) so we can handle 401 ourselves
-      // without the "session_expired" redirect triggering on first visit.
       const res = await fetch(API + '/auth/me', { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+
+      // Server says auth is disabled globally — run without login
+      if (data.authEnabled === false) {
+        Auth.verified    = true;
+        Auth.authEnabled = false;
+        // Hide user pill entirely when auth is off
+        const pill = document.getElementById('user-pill');
+        if (pill) pill.style.display = 'none';
+        return;
+      }
 
       if (res.status === 401) {
-        // Not logged in at all — go to login page with no error message
         window.location.href = '/login.html';
         return;
       }
 
-      const data = await res.json();
       if (data.authenticated && data.user) {
-        Auth.verified = true;
+        Auth.verified    = true;
+        Auth.authEnabled = true;
         const pill   = document.getElementById('user-pill');
         const avatar = document.getElementById('user-avatar');
         const name   = document.getElementById('user-name');
         if (data.user.picture) avatar.src = data.user.picture;
         name.textContent = data.user.name || data.user.email || '';
-        pill.style.display = 'flex';
+        if (pill) pill.style.display = 'flex';
       } else {
         window.location.href = '/login.html';
       }
     } catch (err) {
-      // Network error — don't redirect, let the user see the app attempt
       console.warn('Auth check failed (network?):', err.message);
     }
   },

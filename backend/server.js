@@ -14,6 +14,7 @@ const passport       = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const helmet         = require('helmet');
 const rateLimit      = require('express-rate-limit');
+const fs             = require('fs');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
@@ -39,6 +40,10 @@ const pool = mysql.createPool({
   connectionLimit:    10,
   queueLimit:         0,
 });
+
+// ── Auth toggle ──────────────────────────────────────────────────────────────
+// Set AUTH_ENABLED=false in .env to disable Google SSO entirely.
+const AUTH_ENABLED = process.env.AUTH_ENABLED !== 'false';
 
 // ── Access-control helpers ────────────────────────────────────────────────────
 const ALLOWED_DOMAIN = (process.env.ALLOWED_DOMAIN || '').trim().toLowerCase();
@@ -206,6 +211,10 @@ app.use(passport.session());
 
 // ── Auth guard — applied to all /api/* routes ─────────────────────────────────
 function requireAuth(req, res, next) {
+  if (!AUTH_ENABLED) {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    return next();
+  }
   if (req.isAuthenticated()) {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
     return next();
@@ -255,12 +264,16 @@ app.get('/auth/logout', (req, res, next) => {
   });
 });
 
-// GET /api/auth/me — returns current user or 401
+// GET /api/auth/me — returns current user, 401, or auth-disabled flag
 app.get('/api/auth/me', (req, res) => {
+  if (!AUTH_ENABLED) {
+    return res.json({ authenticated: true, authEnabled: false,
+      user: { name: 'Local User', email: '', picture: '' } });
+  }
   if (!req.isAuthenticated()) {
     return res.status(401).json({ authenticated: false, loginUrl: '/login.html' });
   }
-  res.json({ authenticated: true, user: req.user });
+  res.json({ authenticated: true, authEnabled: true, user: req.user });
 });
 
 // GET /api/auth/users — list all users who have ever signed in (admin view)
@@ -1012,6 +1025,65 @@ app.post('/api/batch/apply', requireAuth, async (req, res) => {
   }
 });
 
+// ── Poster upload (camera capture) ───────────────────────────────────────────
+// POST /api/movies/:id/poster
+// Body: { imageData: "data:image/jpeg;base64,..." }
+app.post('/api/movies/:id/poster', requireAuth, async (req, res) => {
+  try {
+    const id = parseId(req, res); if (!id) return;
+    const { imageData } = req.body;
+    if (!imageData || typeof imageData !== 'string')
+      return res.status(400).json({ error: 'imageData is required' });
+
+    const match = imageData.match(/^data:(image\/(jpeg|png|webp));base64,(.+)$/);
+    if (!match) return res.status(400).json({ error: 'imageData must be a base64 JPEG/PNG' });
+    const base64 = match[3];
+    if (base64.length > 4 * 1024 * 1024)
+      return res.status(413).json({ error: 'Image too large (max ~3 MB)' });
+
+    const posterDir = path.join(__dirname, '../frontend/posters');
+    fs.mkdirSync(posterDir, { recursive: true });
+
+    const filename = String(id) + '.jpg';
+    const destPath = path.join(posterDir, filename);
+    const webPath  = '/posters/' + filename;
+
+    fs.writeFileSync(destPath, Buffer.from(base64, 'base64'));
+    await pool.query('UPDATE movies SET localPoster = ? WHERE id = ?', [webPath, id]);
+
+    res.json({ message: 'Poster saved', localPoster: webPath });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/movies/:id/poster — remove local poster file and clear DB fields
+app.delete('/api/movies/:id/poster', requireAuth, async (req, res) => {
+  try {
+    const id = parseId(req, res); if (!id) return;
+
+    const [[movie]] = await pool.query(
+      'SELECT localPoster FROM movies WHERE id = ?', [id]
+    );
+    if (!movie) return res.status(404).json({ error: 'Movie not found' });
+
+    if (movie.localPoster) {
+      const filePath = path.join(__dirname, '../frontend', movie.localPoster);
+      try { fs.unlinkSync(filePath); } catch (_) { /* already gone */ }
+    }
+
+    // Use double-quoted string so empty single quotes don't break the parser
+    await pool.query(
+      "UPDATE movies SET localPoster = '', coverImage = '' WHERE id = ?",
+      [id]
+    );
+
+    res.json({ message: 'Poster deleted' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── SPA fallback ──────────────────────────────────────────────────────────────
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../frontend/index.html'));
@@ -1022,7 +1094,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🎬  DVD Library running → http://0.0.0.0:${PORT}`);
   console.log(`    DB:     ${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 3306}`);
   console.log(`    OMDB:   ${omdbKey() ? '✓ configured' : '✗ not configured'}`);
-  console.log(`    Auth:   ${googleConfigured ? '✓ Google SSO configured' : '✗ Google SSO NOT configured — set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET'}`);
+  console.log(`    Auth:   ${!AUTH_ENABLED ? '⚠ DISABLED (AUTH_ENABLED=false) — no login required' : googleConfigured ? '✓ Google SSO configured' : '✗ Google SSO NOT configured — set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET'}`);
   if (googleConfigured) {
     console.log(`    Domain: ${ALLOWED_DOMAIN || '(any Google account)'}`);
     if (ALLOWED_EMAILS.length) console.log(`    Emails: ${ALLOWED_EMAILS.join(', ')}`);

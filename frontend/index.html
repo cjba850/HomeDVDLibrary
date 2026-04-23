@@ -1995,39 +1995,57 @@ const Batch = {
       </p>
       <div style="margin-bottom:16px">
         <label class="form-label">What to enrich</label>
-        <select id="batch-missing-select" class="form-select">
+        <select id="batch-missing-select" class="form-select" onchange="Batch.previewCount()">
           <option value="any">Any missing data (IMDB ID, barcode, or poster)</option>
           <option value="imdb">Missing IMDB ID only</option>
           <option value="barcode">Missing barcode only</option>
           <option value="poster">Missing poster only</option>
         </select>
       </div>
-      <div style="margin-bottom:20px">
-        <label class="form-label">Limit (max movies to review)</label>
-        <select id="batch-limit-select" class="form-select">
-          <option value="10">10 movies</option>
-          <option value="25">25 movies</option>
-          <option value="50" selected>50 movies</option>
-          <option value="100">100 movies</option>
-          <option value="200">All (up to 200)</option>
-        </select>
+      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:120px">
+          <label class="form-label">Max to review</label>
+          <select id="batch-limit-select" class="form-select">
+            <option value="10">10 movies</option>
+            <option value="25">25 movies</option>
+            <option value="50" selected>50 movies</option>
+            <option value="100">100 movies</option>
+            <option value="200">200 movies</option>
+            <option value="500">All (up to 500)</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:120px">
+          <label class="form-label">Start at record #
+            <span id="batch-total-hint" style="color:var(--muted);font-weight:400"></span>
+          </label>
+          <input id="batch-offset-input" type="number" class="form-control"
+                 value="1" min="1" step="1" placeholder="1"
+                 title="Skip the first N−1 candidates and begin from record N">
+        </div>
       </div>
+      <div id="batch-preview-area" style="margin-bottom:16px"></div>
       <button class="btn-accent" style="width:100%" onclick="Batch.start()">
         <i class="bi bi-magic"></i> Start Batch Enrich
       </button>`;
+    // Load candidate count in background so user can see what they're working with
+    Batch.previewCount();
     this.modal.show();
   },
 
   async start() {
-    const missing = document.getElementById('batch-missing-select')?.value || 'any';
-    const limit   = document.getElementById('batch-limit-select')?.value   || '50';
+    const missing     = document.getElementById('batch-missing-select')?.value || 'any';
+    const limit       = document.getElementById('batch-limit-select')?.value   || '50';
+    const startAt     = Math.max(parseInt(document.getElementById('batch-offset-input')?.value || '1', 10), 1);
+    const offset      = startAt - 1;   // UI is 1-based, API is 0-based
     document.getElementById('batch-modal-body').innerHTML =
       '<div style="text-align:center;padding:40px"><div class="spinner-border text-primary"></div><p style="margin-top:12px;color:var(--muted)">Finding candidates…</p></div>';
     try {
-      const r = await apiCall(`/batch/candidates?missing=${missing}&limit=${limit}`);
-      this.candidates = r.candidates;
-      this.total      = r.candidates.length;
-      this.current    = 0;
+      const r = await apiCall(`/batch/candidates?missing=${missing}&limit=${limit}&offset=${offset}`);
+      this.candidates      = r.candidates;
+      this.total           = r.candidates.length;
+      this.totalCandidates = r.totalCandidates;   // grand total (ignoring limit/offset)
+      this.startOffset     = offset;               // remember for display
+      this.current         = 0;
       if (!this.total) {
         document.getElementById('batch-modal-body').innerHTML =
           `<div style="text-align:center;padding:40px">
@@ -2067,6 +2085,9 @@ const Batch = {
   renderConfirm(r) {
     const { movie, omdbData, omdbResults, similar } = r;
     const pct = Math.round(this.current / this.total * 100);
+    // Global position = offset + current (1-based for display)
+    const globalPos = (this.startOffset || 0) + this.current + 1;
+    const globalTotal = this.totalCandidates || this.total;
 
     const poster  = omdbData?.Poster && omdbData.Poster !== 'N/A' ? omdbData.Poster : '';
     const posterEl = poster
@@ -2105,7 +2126,13 @@ const Batch = {
 
     document.getElementById('batch-modal-body').innerHTML = `
       <div class="enrich-progress"><div class="enrich-progress-fill" style="width:${pct}%"></div></div>
-      <div style="font-size:.75rem;color:var(--muted);margin-bottom:12px">${this.current+1} of ${this.total} · ✓ ${this.updated} updated · ⟳ ${this.skipped} skipped</div>
+      <div style="font-size:.75rem;color:var(--muted);margin-bottom:12px">
+        Record <strong style="color:var(--text)">${globalPos}</strong> of ${globalTotal}
+        <span style="margin:0 6px">·</span>
+        This session: ${this.current+1}/${this.total}
+        <span style="margin:0 6px">·</span>
+        ✓ ${this.updated} updated · ⟳ ${this.skipped} skipped
+      </div>
 
       ${dupWarn}
 
@@ -2211,6 +2238,34 @@ const Batch = {
 
   stop() { this.stopped = true; },
 
+  // Called when "What to enrich" changes — fetches total count and populates hint
+  async previewCount() {
+    const missing = document.getElementById('batch-missing-select')?.value || 'any';
+    const hintEl  = document.getElementById('batch-total-hint');
+    const prevEl  = document.getElementById('batch-preview-area');
+    if (!hintEl) return;
+    hintEl.textContent = '…';
+    try {
+      // Fetch with limit=1 just to get totalCandidates cheaply
+      const r = await apiCall(`/batch/candidates?missing=${missing}&limit=1&offset=0`);
+      const n = r.totalCandidates || 0;
+      hintEl.textContent = n ? `(${n} total)` : '(none found)';
+      if (prevEl) {
+        if (n === 0) {
+          prevEl.innerHTML = `<div style="color:var(--success);font-size:.85rem">✓ No candidates — nothing to enrich for this filter.</div>`;
+        } else {
+          prevEl.innerHTML = `<div style="background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:10px 14px;font-size:.83rem;color:var(--muted)">
+            <strong style="color:var(--text)">${n} records</strong> need enriching.
+            Set "Start at record" to <strong>1</strong> to begin from the top, or enter a higher number to skip records you've already reviewed.
+            After each session the app remembers nothing automatically — note the record number from the summary screen to resume next time.
+          </div>`;
+        }
+      }
+    } catch (_) {
+      if (hintEl) hintEl.textContent = '';
+    }
+  },
+
   showSummary() {
     document.getElementById('batch-modal-body').innerHTML = `
       <div style="text-align:center;padding:30px">
@@ -2219,9 +2274,19 @@ const Batch = {
         <div style="display:flex;justify-content:center;gap:24px;margin-top:16px">
           <div><div style="font-size:2rem;font-weight:800;color:var(--success)">${this.updated}</div><div style="font-size:.8rem;color:var(--muted)">Updated</div></div>
           <div><div style="font-size:2rem;font-weight:800;color:var(--muted)">${this.skipped}</div><div style="font-size:.8rem;color:var(--muted)">Skipped</div></div>
-          <div><div style="font-size:2rem;font-weight:800;color:var(--accent)">${this.total}</div><div style="font-size:.8rem;color:var(--muted)">Total</div></div>
+          <div><div style="font-size:2rem;font-weight:800;color:var(--accent)">${this.total}</div><div style="font-size:.8rem;color:var(--muted)">Reviewed</div></div>
         </div>
-        ${this.updated ? '<p style="margin-top:16px;font-size:.85rem;color:var(--muted)">Run <code>node scripts/fetch-posters.js</code> to download any new poster images.</p>' : ''}
+        ${(() => {
+          const nextRecord = (this.startOffset || 0) + this.total + 1;
+          const remaining  = (this.totalCandidates || 0) - (this.startOffset || 0) - this.total;
+          return remaining > 0
+            ? \`<div style="margin-top:16px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:12px;font-size:.84rem;text-align:left">
+                <strong>Resume next session:</strong> set "Start at record" to <strong>\${nextRecord}</strong>
+                <span style="color:var(--muted);margin-left:6px">(\${remaining} records remaining)</span>
+              </div>\`
+            : '<p style="margin-top:12px;font-size:.85rem;color:var(--success)">✓ All candidates reviewed!</p>';
+        })()}
+        ${this.updated ? '<p style="margin-top:12px;font-size:.85rem;color:var(--muted)">Run <code>node scripts/fetch-posters.js</code> to download any new poster images.</p>' : ''}
       </div>`;
     document.getElementById('batch-modal-footer').innerHTML =
       `<button class="btn-accent" data-bs-dismiss="modal" onclick="Library.reload()">Done</button>`;

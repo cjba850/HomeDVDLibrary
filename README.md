@@ -17,7 +17,7 @@ Access via any browser, or install as a PWA on iPhone/Android and scan barcodes 
 | **Duplicates** | Exact match · IMDB ID · SOUNDEX phonetic · word-overlap (4 strategies) |
 | **Posters** | Remote OMDB URL or locally cached `/posters/<id>.jpg` |
 | **Loans** | Loan out to named person · mark returned · full history · days-out colour coding |
-| **Batch Enrich** | Step through missing-metadata movies · confirm OMDB match · update barcode/IMDB/poster in bulk |
+| **Batch Enrich** | Step through missing-metadata movies · confirm OMDB match · update barcode/IMDB/poster in bulk · resumable via "Start at record #" offset |
 | **Stats** | Totals · by format · top genres · by decade · average IMDB rating · average price paid |
 | **Auth** | Google SSO (OAuth 2.0) · domain allowlist · email allowlist · session stored in MariaDB |
 | **Security** | Helmet CSP · rate limiting · input validation · parameterised SQL · no-store cache headers |
@@ -149,7 +149,44 @@ mariadb -u dvdlib -p dvdlibrary < scripts/migrate-add-auth.sql
 
 ---
 
-## Poster Image Caching
+## Batch Enrich
+
+Batch Enrich lets you step through movies that are missing IMDB data, barcodes, or poster images and confirm each OMDB match before applying it. Access it from the **Stats** tab → **Batch Enrich** button.
+
+### Setup options
+
+| Option | Description |
+|--------|-------------|
+| What to enrich | Filter candidates: Any missing data · IMDB ID only · Barcode only · Poster only |
+| Max to review | How many records to load in this session (10 – 500) |
+| Start at record # | Skip the first N−1 candidates — use this to resume a previous session |
+
+### How to resume across sessions
+
+The app does not automatically remember where you left off. At the end of each session the summary screen tells you the exact number to enter next time — for example:
+
+> **Resume next session:** set "Start at record" to **51** (150 records remaining)
+
+Make a note of that number before closing the modal.
+
+### Per-record actions
+
+- **Yes, Update** — applies the OMDB match to the record (title, cast, director, genre, plot, poster, IMDB ID/rating). Uncheck "Update all metadata" to only write the IMDB ID, rating, and barcode.
+- **Skip** — leaves the record unchanged and moves to the next.
+- **Select a different match** — if the top OMDB result is wrong, pick an alternative from the list below it.
+- **Stop** — ends the session immediately and shows the summary.
+
+A duplicate warning appears automatically if a similar title already exists in your library.
+
+After a batch session that updated poster URLs, run:
+```bash
+node scripts/fetch-posters.js
+```
+to download the new images locally.
+
+---
+
+
 
 ```bash
 node scripts/fetch-posters.js              # download all missing posters
@@ -292,7 +329,7 @@ When behind HTTPS nginx, set `SESSION_COOKIE_SECURE=true` in your env.
 ### Batch Enrichment (all require auth)
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/batch/candidates` | Titles missing data. Params: `?missing=any\|imdb\|barcode\|poster&limit=50` |
+| GET | `/api/batch/candidates` | Titles missing data. Params: `?missing=any\|imdb\|barcode\|poster&limit=50&offset=0`. Returns `totalCandidates` (grand total) alongside the paged results. |
 | GET | `/api/batch/lookup/:id` | OMDB match + duplicate check for one title |
 | POST | `/api/batch/apply` | Apply confirmed OMDB data. Body: `{ id, imdbId, barcode, applyFields }` |
 
@@ -415,7 +452,7 @@ dvd-library/
 |---------|-----|
 | Camera barcode scanning not working (iOS) | Must be HTTPS. See nginx config above. |
 | `Cannot find module 'mysql2/promise'` in fetch-posters.js | Run from project root: `node scripts/fetch-posters.js` |
-| `Incorrect arguments to mysqld_stmt_execute` | Fixed in current version (batch candidates now uses `pool.query` with inlined LIMIT) |
+| `Incorrect arguments to mysqld_stmt_execute` | Fixed in current version — all `pool.execute()` calls replaced with `pool.query()` (client-side escaping, no MariaDB prepared-statement protocol issues) |
 | OMDB search returns "key not configured" | Set `OMDB_API_KEY` in env and restart |
 | Login loop / session_expired on first visit | Fixed in current version. Check `SESSION_COOKIE_SECURE=false` for HTTP setups |
 | `redirect_uri_mismatch` on Google sign-in | Redirect URI in Google Console must exactly match `APP_URL/auth/google/callback` |

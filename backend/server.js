@@ -28,6 +28,11 @@ const dbConfig = {
   database: process.env.DB_NAME || 'dvdlibrary',
   charset:  'utf8mb4',
 };
+// NOTE: All queries use pool.query() (client-side escaping) rather than
+// pool.execute() (server-side prepared statements) throughout this file.
+// This avoids "Incorrect arguments to mysqld_stmt_execute" errors that occur
+// with MariaDB when LIMIT parameters or certain types are used in prepared stmts.
+// Both are equally safe against SQL injection.
 const pool = mysql.createPool({
   ...dbConfig,
   waitForConnections: true,
@@ -99,7 +104,7 @@ if (googleConfigured) {
       }
 
       // Upsert user record for audit log
-      await pool.execute(
+      await pool.query(
         `INSERT INTO auth_users (googleId, email, name, picture, loginCount)
          VALUES (?, ?, ?, ?, 1)
          ON DUPLICATE KEY UPDATE
@@ -261,7 +266,7 @@ app.get('/api/auth/me', (req, res) => {
 // GET /api/auth/users — list all users who have ever signed in (admin view)
 app.get('/api/auth/users', requireAuth, async (req, res) => {
   try {
-    const [rows] = await pool.execute(
+    const [rows] = await pool.query(
       'SELECT id, email, name, picture, firstLogin, lastLogin, loginCount FROM auth_users ORDER BY lastLogin DESC'
     );
     res.json(rows);
@@ -327,7 +332,7 @@ async function omdbGet(params) {
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get('/api/health', async (req, res) => {
   try {
-    await pool.execute('SELECT 1');
+    await pool.query('SELECT 1');
     res.json({ status: 'ok', db: 'connected', omdb: !!omdbKey() });
   } catch (e) {
     res.status(503).json({ status: 'error', error: e.message });
@@ -363,7 +368,7 @@ app.get('/api/movies', requireAuth, async (req, res) => {
 
     sql += ` ORDER BY ${orderBy}`;
 
-    const [rows] = await pool.execute(sql, params);
+    const [rows] = await pool.query(sql, params);
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -374,7 +379,7 @@ app.get('/api/movies', requireAuth, async (req, res) => {
 app.get('/api/movies/:id', requireAuth, async (req, res) => {
   try {
     const id = parseId(req, res); if (!id) return;
-    const [rows] = await pool.execute('SELECT * FROM movies WHERE id = ?', [id]);
+    const [rows] = await pool.query('SELECT * FROM movies WHERE id = ?', [id]);
     if (!rows.length) return res.status(404).json({ error: 'Movie not found' });
     res.json(rows[0]);
   } catch (e) {
@@ -388,7 +393,7 @@ app.post('/api/movies', requireAuth, async (req, res) => {
     const d = sanitise(req.body);
     if (!d.movieName) return res.status(400).json({ error: 'movieName is required' });
 
-    const [result] = await pool.execute(
+    const [result] = await pool.query(
       `INSERT INTO movies
          (barcode,movieName,actors,director,genre,year,runtime,plot,coverImage,
           format,pop,rrp,pp,rating,comments,imdbId,imdbRating,language,country,studio,location)
@@ -413,7 +418,7 @@ app.put('/api/movies/:id', requireAuth, async (req, res) => {
     const d = sanitise(req.body);
     if (!d.movieName) return res.status(400).json({ error: 'movieName is required' });
 
-    const [result] = await pool.execute(
+    const [result] = await pool.query(
       `UPDATE movies SET
          barcode=?,movieName=?,actors=?,director=?,genre=?,year=?,runtime=?,plot=?,
          coverImage=?,format=?,pop=?,rrp=?,pp=?,rating=?,comments=?,imdbId=?,
@@ -439,7 +444,7 @@ app.put('/api/movies/:id', requireAuth, async (req, res) => {
 app.delete('/api/movies/:id', requireAuth, async (req, res) => {
   try {
     const id = parseId(req, res); if (!id) return;
-    const [result] = await pool.execute('DELETE FROM movies WHERE id = ?', [id]);
+    const [result] = await pool.query('DELETE FROM movies WHERE id = ?', [id]);
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Movie not found' });
     res.json({ message: 'Movie deleted successfully' });
   } catch (e) {
@@ -456,7 +461,7 @@ app.get('/api/lookup/barcode/:code', requireAuth, async (req, res) => {
 
   // 1. Already in library?
   try {
-    const [rows] = await pool.execute('SELECT * FROM movies WHERE barcode = ?', [code]);
+    const [rows] = await pool.query('SELECT * FROM movies WHERE barcode = ?', [code]);
     if (rows.length) return res.json({ found: true, inLibrary: true, movie: rows[0] });
   } catch (e) { /* continue */ }
 
@@ -552,7 +557,7 @@ app.get('/api/similar', requireAuth, async (req, res) => {
 
     // ── Strategy 1: Exact normalised match ──────────────────────────────────
     // Strip punctuation, articles, and collapse whitespace for comparison
-    const [exactRows] = await pool.execute(
+    const [exactRows] = await pool.query(
       `SELECT *, 'exact' AS matchType
        FROM movies
        WHERE LOWER(REGEXP_REPLACE(movieName, '[^a-z0-9 ]', ''))
@@ -564,7 +569,7 @@ app.get('/api/similar', requireAuth, async (req, res) => {
 
     // ── Strategy 2: IMDB ID match (if provided) ──────────────────────────────
     if (imdbId) {
-      const [imdbRows] = await pool.execute(
+      const [imdbRows] = await pool.query(
         `SELECT *, 'imdbId' AS matchType FROM movies
          WHERE imdbId = ? AND imdbId != ''
            ${exclude ? 'AND id != ?' : ''}`,
@@ -576,7 +581,7 @@ app.get('/api/similar', requireAuth, async (req, res) => {
     }
 
     // ── Strategy 3: SOUNDEX phonetic match ───────────────────────────────────
-    const [soundexRows] = await pool.execute(
+    const [soundexRows] = await pool.query(
       `SELECT *, 'soundex' AS matchType
        FROM movies
        WHERE SOUNDEX(movieName) = SOUNDEX(?)
@@ -612,7 +617,7 @@ app.get('/api/similar', requireAuth, async (req, res) => {
 
     // Only fetch if we don't already have a huge number of matches
     if (matches.size < 20) {
-      const [allRows] = await pool.execute(
+      const [allRows] = await pool.query(
         `SELECT id, movieName, year, format, coverImage, localPoster, imdbRating, director
          FROM movies ${exclude ? 'WHERE id != ?' : ''}`,
         exclude ? [exclude] : []
@@ -659,22 +664,22 @@ app.get('/api/similar', requireAuth, async (req, res) => {
 // ── Stats ────────────────────────────────────────────────────────────────────
 app.get('/api/stats', requireAuth, async (req, res) => {
   try {
-    const [[{ total }]]    = await pool.execute('SELECT COUNT(*) AS total FROM movies');
-    const [formats]        = await pool.execute('SELECT format, COUNT(*) AS count FROM movies GROUP BY format ORDER BY count DESC');
-    const [genres]         = await pool.execute(`
+    const [[{ total }]]    = await pool.query('SELECT COUNT(*) AS total FROM movies');
+    const [formats]        = await pool.query('SELECT format, COUNT(*) AS count FROM movies GROUP BY format ORDER BY count DESC');
+    const [genres]         = await pool.query(`
       SELECT TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(genre, ',', n.n), ',', -1)) AS g, COUNT(*) AS count
       FROM movies
       CROSS JOIN (SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5) n
       WHERE CHAR_LENGTH(genre) - CHAR_LENGTH(REPLACE(genre, ',', '')) >= n.n - 1
         AND genre != ''
       GROUP BY g ORDER BY count DESC LIMIT 12`);
-    const [decades]        = await pool.execute(`
+    const [decades]        = await pool.query(`
       SELECT CONCAT(FLOOR(CAST(year AS UNSIGNED)/10)*10,'s') AS decade, COUNT(*) AS count
       FROM movies WHERE year REGEXP '^[0-9]{4}$'
       GROUP BY decade ORDER BY decade`);
-    const [[{ avgImdb }]]  = await pool.execute(
+    const [[{ avgImdb }]]  = await pool.query(
       "SELECT ROUND(AVG(CAST(imdbRating AS DECIMAL(3,1))),1) AS avgImdb FROM movies WHERE imdbRating != '' AND imdbRating IS NOT NULL");
-    const [[{ avgPaid }]]  = await pool.execute(
+    const [[{ avgPaid }]]  = await pool.query(
       "SELECT ROUND(AVG(CAST(REPLACE(pp,'$','') AS DECIMAL(8,2))),2) AS avgPaid FROM movies WHERE pp != '' AND pp REGEXP '^\\\\$?[0-9]'");
 
     res.json({ total, formats, genres, decades, avgImdb, avgPaid });
@@ -688,11 +693,11 @@ app.get('/api/stats', requireAuth, async (req, res) => {
 app.get('/api/filters', requireAuth, async (req, res) => {
   try {
     // Distinct age ratings
-    const [ratings] = await pool.execute(
+    const [ratings] = await pool.query(
       "SELECT DISTINCT rating FROM movies WHERE rating != '' ORDER BY rating");
 
     // Distinct genres (split comma-separated values)
-    const [genres] = await pool.execute(`
+    const [genres] = await pool.query(`
       SELECT DISTINCT TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(genre, ',', n.n), ',', -1)) AS g
       FROM movies
       CROSS JOIN (SELECT 1 n UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5 UNION SELECT 6) n
@@ -701,11 +706,11 @@ app.get('/api/filters', requireAuth, async (req, res) => {
       ORDER BY g`);
 
     // Year range
-    const [[yearRange]] = await pool.execute(
+    const [[yearRange]] = await pool.query(
       "SELECT MIN(CAST(year AS UNSIGNED)) AS minYear, MAX(CAST(year AS UNSIGNED)) AS maxYear FROM movies WHERE year REGEXP '^[0-9]{4}$'");
 
     // Place of purchase options
-    const [purchases] = await pool.execute(
+    const [purchases] = await pool.query(
       "SELECT DISTINCT pop FROM movies WHERE pop != '' ORDER BY pop");
 
     res.json({
@@ -737,7 +742,7 @@ app.get('/api/loans', requireAuth, async (req, res) => {
     const params = [];
     if (person) { sql += ' AND m.loanedTo LIKE ?'; params.push(`%${person}%`); }
     sql += ' ORDER BY m.loanedDate DESC';
-    const [rows] = await pool.execute(sql, params);
+    const [rows] = await pool.query(sql, params);
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -747,11 +752,11 @@ app.get('/api/loans', requireAuth, async (req, res) => {
 // GET /api/loans/people  — distinct borrower names (for autocomplete)
 app.get('/api/loans/people', requireAuth, async (req, res) => {
   try {
-    const [rows] = await pool.execute(
+    const [rows] = await pool.query(
       "SELECT DISTINCT loanedTo AS name, COUNT(*) AS count FROM movies WHERE loanedTo != '' GROUP BY loanedTo ORDER BY loanedTo"
     );
     // Also include historical borrowers not currently holding anything
-    const [hist] = await pool.execute(
+    const [hist] = await pool.query(
       "SELECT DISTINCT loanedTo AS name FROM loan_history WHERE loanedTo NOT IN (SELECT loanedTo FROM movies WHERE loanedTo != '') ORDER BY loanedTo"
     );
     res.json({ current: rows, past: hist.map(r => r.name) });
@@ -763,7 +768,7 @@ app.get('/api/loans/people', requireAuth, async (req, res) => {
 // GET /api/loans/history/:movieId  — full loan history for one movie
 app.get('/api/loans/history/:movieId', requireAuth, async (req, res) => {
   try {
-    const [rows] = await pool.execute(
+    const [rows] = await pool.query(
       'SELECT * FROM loan_history WHERE movieId = ? ORDER BY loanedDate DESC',
       [req.params.movieId]
     );
@@ -855,9 +860,10 @@ app.post('/api/movies/:id/return', requireAuth, async (req, res) => {
 // Query params: ?limit=50&missing=imdb|barcode|poster|any (default: any)
 app.get('/api/batch/candidates', requireAuth, async (req, res) => {
   try {
-    // Validate & clamp limit — inline as integer (not a parameter) because
-    // MySQL prepared statements can reject LIMIT ? when WHERE has IS NULL/OR
-    const limit   = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
+    // Validate & clamp — inline as integers (not parameters) because
+    // pool.query() with inlined integers is safe; these come from validated parseInt()
+    const limit  = Math.min(Math.max(parseInt(req.query.limit,  10) || 50, 1), 500);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const missing = (req.query.missing || 'any').replace(/[^a-z]/g, '');
 
     // All where strings are hardcoded — NOT from user input; safe to inline
@@ -869,12 +875,17 @@ app.get('/api/batch/candidates', requireAuth, async (req, res) => {
     const where = WHERE_MAP[missing] ||
       "(imdbId = '' OR imdbId IS NULL OR barcode IS NULL OR coverImage = '')";
 
-    // pool.query sends plain SQL (no prepared stmt) — avoids mysqld_stmt_execute error
+    // Also return the total count of candidates (ignoring limit/offset)
+    // so the UI can show "X of Y" and let the user pick a meaningful start point
+    const [[{ totalCandidates }]] = await pool.query(
+      `SELECT COUNT(*) AS totalCandidates FROM movies WHERE ${where}`
+    );
+
     const [rows] = await pool.query(
       `SELECT id, movieName, year, format, imdbId, barcode, coverImage, localPoster, director, genre
-       FROM movies WHERE ${where} ORDER BY movieName LIMIT ${limit}`
+       FROM movies WHERE ${where} ORDER BY movieName LIMIT ${limit} OFFSET ${offset}`
     );
-    res.json({ count: rows.length, candidates: rows });
+    res.json({ count: rows.length, totalCandidates, offset, candidates: rows });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -885,7 +896,7 @@ app.get('/api/batch/candidates', requireAuth, async (req, res) => {
 // Returns the best OMDB match + any library duplicates to warn about.
 app.get('/api/batch/lookup/:id', requireAuth, async (req, res) => {
   try {
-    const [[movie]] = await pool.execute(
+    const [[movie]] = await pool.query(
       'SELECT * FROM movies WHERE id = ?', [req.params.id]
     );
     if (!movie) return res.status(404).json({ error: 'Movie not found' });
@@ -918,7 +929,7 @@ app.get('/api/batch/lookup/:id', requireAuth, async (req, res) => {
       return [...wa].filter(w => wb.has(w)).length / Math.max(wa.size, wb.size);
     }
 
-    const [allMovies] = await pool.execute(
+    const [allMovies] = await pool.query(
       'SELECT id, movieName, year, format, coverImage, localPoster, imdbId FROM movies WHERE id != ?',
       [movie.id]
     );
@@ -989,12 +1000,12 @@ app.post('/api/batch/apply', requireAuth, async (req, res) => {
     const setClause = safeKeys.map(k => `\`${k}\` = ?`).join(', ');
     const values    = [...safeKeys.map(k => patch[k]), id];
 
-    const [result] = await pool.execute(
+    const [result] = await pool.query(
       `UPDATE movies SET ${setClause} WHERE id = ?`, values
     );
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Movie not found' });
 
-    const [[updated]] = await pool.execute('SELECT * FROM movies WHERE id = ?', [id]);
+    const [[updated]] = await pool.query('SELECT * FROM movies WHERE id = ?', [id]);
     res.json({ message: 'Movie enriched', movie: updated });
   } catch (e) {
     res.status(e.message.includes('OMDB_API_KEY') ? 503 : 500).json({ error: e.message });

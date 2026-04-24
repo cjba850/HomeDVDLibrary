@@ -9,20 +9,20 @@ Access via any browser, or install as a PWA on iPhone/Android and scan barcodes 
 
 | Category | Features |
 |----------|----------|
-| **Library** | Grid/list views · sort · full-text search · poster images |
-| **Filters** | Format · genre · age rating · place of purchase · IMDB score · year range · poster-only |
+| **Library** | Grid/list views · sort · full-text search · poster images · OUT badge on loaned discs |
+| **Filters** | Format · genre · age rating · place of purchase · IMDB score · year range · poster-only toggle |
 | **Add/Edit** | Manual entry · barcode scan · OMDB auto-fill · cover preview · shelf location |
 | **Barcode** | Camera scan (iOS Safari / Android Chrome / desktop) · manual entry fallback · UPCitemdb lookup chain |
-| **OMDB** | Title search · IMDB ID lookup · auto-fill all metadata · batch enrichment |
-| **Duplicates** | Exact match · IMDB ID · SOUNDEX phonetic · word-overlap (4 strategies) |
-| **Posters** | Remote OMDB URL or locally cached `/posters/<id>.jpg` · tap poster in detail view to replace via camera · delete incorrect poster with one tap |
-| **Loans** | Loan out to named person · mark returned · full history · days-out colour coding |
-| **Batch Enrich** | Step through missing-metadata movies · confirm OMDB match · update barcode/IMDB/poster in bulk · resumable via "Start at record #" offset |
+| **OMDB Search** | Tabbed panel: title search with **actor-match scoring** + **direct IMDB ID lookup** · top results auto-enriched with cast for comparison · matched results sorted to top |
+| **Duplicates** | Exact title · IMDB ID · SOUNDEX phonetic · word-overlap — 4 strategies with confidence grading |
+| **Posters** | Remote OMDB URL or locally cached `/posters/<id>.jpg` · tap poster in detail view to **replace via device camera** · **delete** incorrect poster with one tap |
+| **Loans** | Loan out to named person · borrower autocomplete · mark returned · full history per disc · days-out colour coding |
+| **Batch Enrich** | Step through missing-metadata movies · OMDB confirmation popup · actor-match in batch results · resumable via **"Start at record #"** offset · updates barcode/IMDB/poster in bulk |
 | **Stats** | Totals · by format · top genres · by decade · average IMDB rating · average price paid |
-| **Auth** | Google SSO (OAuth 2.0) · domain allowlist · email allowlist · session in MariaDB · **or disable entirely with `AUTH_ENABLED=false`** |
+| **Auth** | Google SSO (OAuth 2.0) · domain allowlist · email allowlist · session stored in MariaDB · **or disable entirely with `AUTH_ENABLED=false`** |
 | **Security** | Helmet CSP · rate limiting · input validation · parameterised SQL · no-store cache headers |
 | **PWA** | Installable on iOS/Android home screen · works offline for browsing |
-| **Service** | systemd unit · auto-start on reboot · manage-service.sh helper |
+| **Service** | systemd unit · auto-start on reboot · `manage-service.sh` with start/stop/restart/logs/update |
 
 ---
 
@@ -134,7 +134,7 @@ Secrets live in `/etc/dvd-library/env` (mode 640, owned root:dvdlib).
 
 ## Existing Database Migrations
 
-Run these in order if you have an existing database:
+Run these in order if you have a database created before a particular update:
 
 ```bash
 # Add local poster cache column
@@ -149,106 +149,130 @@ mariadb -u dvdlib -p dvdlibrary < scripts/migrate-add-auth.sql
 
 ---
 
-## Batch Enrich
-
-Batch Enrich lets you step through movies that are missing IMDB data, barcodes, or poster images and confirm each OMDB match before applying it. Access it from the **Stats** tab → **Batch Enrich** button.
-
-### Setup options
-
-| Option | Description |
-|--------|-------------|
-| What to enrich | Filter candidates: Any missing data · IMDB ID only · Barcode only · Poster only |
-| Max to review | How many records to load in this session (10 – 500) |
-| Start at record # | Skip the first N−1 candidates — use this to resume a previous session |
-
-### How to resume across sessions
-
-The app does not automatically remember where you left off. At the end of each session the summary screen tells you the exact number to enter next time — for example:
-
-> **Resume next session:** set "Start at record" to **51** (150 records remaining)
-
-Make a note of that number before closing the modal.
-
-### Per-record actions
-
-- **Yes, Update** — applies the OMDB match to the record (title, cast, director, genre, plot, poster, IMDB ID/rating). Uncheck "Update all metadata" to only write the IMDB ID, rating, and barcode.
-- **Skip** — leaves the record unchanged and moves to the next.
-- **Select a different match** — if the top OMDB result is wrong, pick an alternative from the list below it.
-- **Stop** — ends the session immediately and shows the summary.
-
-A duplicate warning appears automatically if a similar title already exists in your library.
-
-After a batch session that updated poster URLs, run:
-```bash
-node scripts/fetch-posters.js
-```
-to download the new images locally.
-
----
-
-
-
-```bash
-node scripts/fetch-posters.js              # download all missing posters
-node scripts/fetch-posters.js --force      # re-download everything
-node scripts/fetch-posters.js --dry-run    # preview only
-node scripts/fetch-posters.js --id 42      # single movie by id
-```
-
-Images saved to `frontend/posters/<id>.jpg`.
-The app prefers the local file; falls back to OMDB URL automatically.
-
-
-## Poster Camera
-
-The detail modal for each movie now has an interactive poster section:
-
-**When a poster exists:**
-- Tap the poster image or the **Camera** button beneath it to replace it with a new photo
-- Tap **Delete** to remove the current image (both the local file and the OMDB URL are cleared, reverting to the placeholder)
-
-**When no poster exists:**
-- Tap the placeholder (📷) or the **Camera** button to open the camera
-
-### How it works
-
-1. The app opens the device camera (rear-facing by default on mobile)
-2. Position the disc cover in frame and tap **Capture**
-3. The image is scaled to a sensible size (max 600 px wide), encoded as JPEG, and uploaded to the server
-4. It is saved as `frontend/posters/<id>.jpg` and the `localPoster` field is updated in the database
-5. The detail modal updates instantly without a page reload
-
-### Requirements
-
-- Camera access requires **HTTPS** on iOS (Safari) and Android (Chrome). See the nginx config in this README.
-- On desktop browsers, the system webcam is used; any USB camera works.
-- On a local HTTP network (no HTTPS), desktop Chrome and Firefox still allow camera access for `localhost` and local IPs.
-
-
-
-
----
-
 ## Disabling Authentication (AUTH_ENABLED=false)
 
 For private-network or single-user deployments where a login screen is unnecessary,
-you can turn off Google SSO entirely by setting one env variable:
+you can turn off Google SSO entirely with one env variable:
 
 ```ini
 AUTH_ENABLED=false
 ```
 
-When set to false:
+When disabled:
 - No login page is shown — the library loads directly
-- All API routes are open without a session
-- Google credentials (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) are ignored and can be left blank
+- All API routes are accessible without a session
+- Google credentials are ignored and can be left blank
 - The user avatar pill in the header is hidden
-- Session and `auth_users` tables are still created but not used
+- Session and `auth_users` tables are created but unused
 
-To re-enable SSO later, change the value back to `true` (or remove the line) and restart.
+To re-enable later, set `AUTH_ENABLED=true` (or remove the line) and restart.
 
 > **Security note:** Only use `AUTH_ENABLED=false` on a private network or behind a VPN/firewall.
 > Never expose an unauthenticated instance to the open internet.
+
+---
+
+## OMDB Search & IMDB Lookup
+
+The **Auto-fill from OMDB / IMDB** panel in the Add/Edit form has two modes, selectable by tab:
+
+### Title Search (default)
+
+Type a movie title and press Search or Enter. The app:
+
+1. Fetches up to 10 results from OMDB
+2. Immediately displays them so you can browse
+3. Fetches full details (including cast) for the **top 5 results in parallel**
+4. Scores each result against the **actors already in the current form** using name-part matching
+5. Re-renders the list sorted by match quality
+
+Result highlighting:
+
+| Badge | Meaning |
+|-------|---------|
+| ✓ **Cast match** (green) | ≥ 60% of your DB actors appear in this result's cast |
+| ~ **Partial cast** (amber) | Some cast overlap but below 60% |
+| *(cast preview)* | No match — shows the first two OMDB actor names so you can judge manually |
+
+Click any result to auto-fill the entire form (title, year, director, cast, genre, plot, rating, poster, IMDB ID).
+
+### Direct IMDB ID Lookup
+
+Switch to the **IMDB ID** tab when you already know the exact title. Enter the ID in `tt1234567` format — the `tt` prefix is added automatically if you paste just the digits. Fetches full details directly with no ambiguity.
+
+To find an IMDB ID: go to [imdb.com](https://www.imdb.com), find the movie, and copy the `tt` number from the URL (e.g. `https://www.imdb.com/title/tt0111161/`).
+
+---
+
+## Poster Image Caching
+
+Download OMDB poster URLs to local files so the library loads faster and works offline:
+
+```bash
+node scripts/fetch-posters.js              # download all missing posters
+node scripts/fetch-posters.js --force      # re-download everything
+node scripts/fetch-posters.js --dry-run    # preview only
+node scripts/fetch-posters.js --id 42      # single movie by DB id
+```
+
+Images are saved to `frontend/posters/<id>.jpg`. The app always prefers the local file and falls back to the OMDB URL automatically.
+
+---
+
+## Poster Camera
+
+The detail modal for each movie has an interactive poster section.
+
+**When a poster exists** — tap the image or the **Camera** button beneath it to replace it, or tap **Delete** to remove it entirely.
+
+**When no poster exists** — tap the placeholder (📷) or **Camera** to open the device camera.
+
+### Capture flow
+
+1. The app opens the rear-facing camera (front on desktop)
+2. Position the disc cover in frame and tap **Capture**
+3. The image is scaled to max 600 px wide, encoded as JPEG, and uploaded to the server
+4. Saved as `frontend/posters/<id>.jpg`; `localPoster` is updated in the DB
+5. The detail modal updates instantly — no page reload needed
+
+### Requirements
+
+- **HTTPS required** on iOS Safari and Android Chrome (see nginx config below)
+- Desktop Chrome/Firefox allow camera on `localhost` and local IPs without HTTPS
+- Uploaded images must be under ~3 MB (decoded)
+
+---
+
+## Batch Enrich
+
+Step through movies missing IMDB data, barcodes, or posters and confirm each OMDB match before applying. Access from the **Stats** tab → **Batch Enrich** button.
+
+### Setup options
+
+| Option | Description |
+|--------|-------------|
+| What to enrich | Any missing data · IMDB ID only · Barcode only · Poster only |
+| Max to review | Records to load this session (10 – 500) |
+| Start at record # | Skip the first N−1 candidates — use to resume a previous session |
+
+### Resuming across sessions
+
+The app does not save progress automatically. At the end of each session the summary screen shows:
+
+> **Resume next session:** set "Start at record" to **51** (150 records remaining)
+
+Note that number before closing the modal.
+
+### Per-record actions
+
+- **Yes, Update** — applies the OMDB match (title, cast, director, genre, plot, poster, IMDB ID/rating). Uncheck "Update all metadata" to write only IMDB ID, rating, and barcode.
+- **Skip** — leaves the record unchanged and moves on.
+- **Select a different match** — pick an alternative from the list below the top result.
+- **Stop** — ends the session and shows the summary.
+
+A duplicate warning appears automatically if a similar title already exists in your library.
+
+After a session that updated poster URLs, run `node scripts/fetch-posters.js` to download them locally.
 
 ---
 
@@ -256,11 +280,11 @@ To re-enable SSO later, change the value back to `true` (or remove the line) and
 
 ### Step 1 — Create a Google Cloud Project
 1. Go to **https://console.cloud.google.com/**
-2. Click the project selector → **New Project** → name it `DVD Library` → **Create**
+2. Project selector → **New Project** → name it `DVD Library` → **Create**
 
 ### Step 2 — OAuth Consent Screen
 1. **APIs & Services → OAuth consent screen**
-2. Choose **Internal** (Google Workspace users only) or **External** (add test users)
+2. Choose **Internal** (Workspace users only) or **External** (add test users manually)
 3. Fill in App name, support email, developer contact → **Save and Continue**
 
 ### Step 3 — Create Credentials
@@ -274,51 +298,54 @@ To re-enable SSO later, change the value back to `true` (or remove the line) and
 4. Copy the **Client ID** and **Client Secret**
 
 ### Step 4 — Configure .env
-
 ```ini
-# Disable auth entirely for private/local deployments
-AUTH_ENABLED=false
-
-# --- OR keep auth enabled and configure Google SSO ---
 AUTH_ENABLED=true
 GOOGLE_CLIENT_ID=123456789-abc.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxxxxxxxxxx
 APP_URL=https://dvd.yourdomain.com
-ALLOWED_DOMAIN=yourdomain.com          # any @yourdomain.com can sign in
-ALLOWED_EMAILS=                        # optional: specific extra addresses
-SESSION_SECRET=<generate below>
-SESSION_COOKIE_SECURE=false            # set true only for end-to-end HTTPS
+
+# Allow any user from your Workspace domain:
+ALLOWED_DOMAIN=yourdomain.com
+
+# Or specific email addresses (comma-separated):
+ALLOWED_EMAILS=alice@company.com,bob@gmail.com
 
 # Generate SESSION_SECRET:
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+#   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+SESSION_SECRET=your_generated_secret_here
+SESSION_COOKIE_SECURE=false   # set true only for end-to-end HTTPS
 ```
 
-### Step 5 — Access Control
+### Step 5 — Access control options
+
 | Scenario | Config |
 |----------|--------|
 | All staff on `company.com` | `ALLOWED_DOMAIN=company.com` |
 | Specific people only | `ALLOWED_EMAILS=alice@x.com,bob@gmail.com` |
-| Both | Set both — either rule grants access |
+| Both rules | Set both — either grants access |
 | Any Google account | Leave both blank |
 
-### Step 6 — Apply migrations & restart
+### Step 6 — Apply migration & restart
 ```bash
 mariadb -u dvdlib -p dvdlibrary < scripts/migrate-add-auth.sql
 sudo systemctl restart dvd-library
 ```
 
 ### Troubleshooting SSO
+
 | Symptom | Fix |
 |---------|-----|
-| `redirect_uri_mismatch` | Redirect URI in Google Console doesn't exactly match `APP_URL + /auth/google/callback` |
+| `redirect_uri_mismatch` | Redirect URI in Google Console must exactly match `APP_URL/auth/google/callback` — check trailing slashes and http vs https |
 | "Access denied" after sign-in | Email doesn't match `ALLOWED_DOMAIN` or `ALLOWED_EMAILS` |
-| Keeps showing login page | Check SESSION_SECRET is set; check `SESSION_COOKIE_SECURE=false` for HTTP setups |
-| `sso_not_configured` on login | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` missing from env |
-| "This app isn't verified" | Use **Internal** consent screen for Workspace, or add test users for External |
+| Keeps redirecting to login | Check `SESSION_COOKIE_SECURE=false` for HTTP setups; verify `SESSION_SECRET` is set |
+| `sso_not_configured` on login page | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` missing from env |
+| "This app isn't verified" | Use **Internal** consent for Workspace; for External add test users in Google Console |
 
 ---
 
-## nginx + HTTPS (required for camera scanning on iOS)
+## nginx + HTTPS
+
+Required for camera-based barcode scanning and poster capture on iOS.
 
 ```nginx
 server {
@@ -339,6 +366,7 @@ server {
     return 301 https://$host$request_uri;
 }
 ```
+
 Free SSL: `sudo certbot --nginx -d dvd.yourdomain.com`
 
 When behind HTTPS nginx, set `SESSION_COOKIE_SECURE=true` in your env.
@@ -347,16 +375,19 @@ When behind HTTPS nginx, set `SESSION_COOKIE_SECURE=true` in your env.
 
 ## API Reference
 
-### Auth (public)
+### Auth (public — no session required)
+
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/auth/google` | Begin Google OAuth flow |
-| GET | `/auth/google/callback` | OAuth callback (set as redirect URI in Google Console) |
+| GET | `/auth/google/callback` | OAuth callback — register this URI in Google Console |
 | GET | `/auth/logout` | Destroy session, redirect to login |
-| GET | `/api/auth/me` | Current user or 401 |
+| GET | `/api/auth/me` | Current user info, 401, or `{ authEnabled: false }` |
 | GET | `/api/auth/users` | All users who have signed in (requires auth) |
+| GET | `/api/health` | Health check — always public (used by Docker) |
 
 ### Movies (all require auth)
+
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/movies` | List. Params: `search`, `format`, `genre`, `ageRating`, `purchasedAt`, `minImdb`, `minYear`, `maxYear`, `sort` |
@@ -365,51 +396,54 @@ When behind HTTPS nginx, set `SESSION_COOKIE_SECURE=true` in your env.
 | PUT | `/api/movies/:id` | Update |
 | DELETE | `/api/movies/:id` | Delete |
 
-### Lookups (all require auth)
+### Posters (require auth)
+
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/lookup/barcode/:code` | UPC → UPCitemdb → OMDB |
-| GET | `/api/lookup/imdb/:id` | OMDB by IMDB ID |
-| GET | `/api/lookup/title/:title` | OMDB by title |
-| GET | `/api/search/omdb?q=` | OMDB search (multiple results) |
+| POST | `/api/movies/:id/poster` | Upload camera capture. Body: `{ imageData: "data:image/jpeg;base64,…" }` |
+| DELETE | `/api/movies/:id/poster` | Delete local file, clear `localPoster` + `coverImage` |
+
+### Lookups (all require auth)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/lookup/barcode/:code` | UPC → UPCitemdb → OMDB chain |
+| GET | `/api/lookup/imdb/:id` | OMDB by IMDB ID (e.g. `tt0111161`) |
+| GET | `/api/lookup/title/:title` | OMDB by title (single best match) |
+| GET | `/api/search/omdb?q=` | OMDB search (up to 10 results) |
 | GET | `/api/similar?title=&year=&imdbId=&excludeId=` | Fuzzy duplicate check |
-| GET | `/api/filters` | Distinct genres, ratings, stores for dropdowns |
+| GET | `/api/filters` | Distinct genres, ratings, stores for filter dropdowns |
 
 ### Loans (all require auth)
+
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/loans` | All on-loan movies. Param: `?person=` |
-| GET | `/api/loans/people` | Current + historical borrowers |
+| GET | `/api/loans` | All currently on-loan movies. Param: `?person=` |
+| GET | `/api/loans/people` | Current + historical borrower names |
 | GET | `/api/loans/history/:movieId` | Loan history for one title |
 | POST | `/api/movies/:id/loan` | Lend out. Body: `{ loanedTo, notes }` |
 | POST | `/api/movies/:id/return` | Mark returned |
 
 ### Batch Enrichment (all require auth)
+
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/batch/candidates` | Titles missing data. Params: `?missing=any\|imdb\|barcode\|poster&limit=50&offset=0`. Returns `totalCandidates` (grand total) alongside the paged results. |
-| GET | `/api/batch/lookup/:id` | OMDB match + duplicate check for one title |
+| GET | `/api/batch/candidates` | Titles missing data. Params: `?missing=any\|imdb\|barcode\|poster&limit=50&offset=0`. Returns `totalCandidates` alongside paged results. |
+| GET | `/api/batch/lookup/:id` | OMDB best match + duplicate check for one title |
 | POST | `/api/batch/apply` | Apply confirmed OMDB data. Body: `{ id, imdbId, barcode, applyFields }` |
 
-### Poster Function
+### Stats
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/movies/:id/poster` | Upload base64 JPEG/PNG from camera capture. Body: `{ imageData: "data:image/jpeg;base64,..." }` |
-| DELETE | `/api/movies/:id/poster` | Delete local poster file and clear `localPoster`/`coverImage` DB fields |
-
-
-### Misc
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/stats` | ✓ | Library statistics |
-| GET | `/api/health` | public | Docker healthcheck |
+| GET | `/api/stats` | ✓ | Library statistics (formats, genres, decades, averages) |
 
 ---
 
 ## Database Schema
 
 ### movies table
+
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | INT AUTO_INCREMENT | PK |
@@ -420,20 +454,20 @@ When behind HTTPS nginx, set `SESSION_COOKIE_SECURE=true` in your env.
 | `pp` | VARCHAR(20) | **Original field** — price paid |
 | `rating` | VARCHAR(20) | **Original field** — age rating |
 | `comments` | VARCHAR(4000) | **Original field** — personal notes |
-| `barcode` | VARCHAR(50) UNIQUE | UPC/EAN |
+| `barcode` | VARCHAR(50) UNIQUE | UPC/EAN from disc |
 | `format` | ENUM | DVD / Blu-Ray / 4K UHD / Other |
 | `director` | VARCHAR(255) | |
-| `genre` | VARCHAR(255) | |
+| `genre` | VARCHAR(255) | Comma-separated |
 | `year` | VARCHAR(10) | |
-| `runtime` | VARCHAR(50) | |
-| `plot` | TEXT | |
-| `coverImage` | VARCHAR(500) | OMDB poster URL |
-| `localPoster` | VARCHAR(500) | Locally cached poster path |
-| `imdbId` | VARCHAR(50) | e.g. tt0111161 |
-| `imdbRating` | VARCHAR(10) | e.g. 9.3 |
+| `runtime` | VARCHAR(50) | e.g. "148 min" |
+| `plot` | TEXT | Synopsis |
+| `coverImage` | VARCHAR(500) | OMDB poster URL (original) |
+| `localPoster` | VARCHAR(500) | Locally cached poster e.g. `/posters/42.jpg` |
+| `imdbId` | VARCHAR(50) | e.g. `tt0111161` |
+| `imdbRating` | VARCHAR(10) | e.g. `9.3` |
 | `language` | VARCHAR(100) | |
 | `country` | VARCHAR(100) | |
-| `studio` | VARCHAR(255) | |
+| `studio` | VARCHAR(255) | Production company |
 | `location` | VARCHAR(100) | Physical shelf location |
 | `loanedTo` | VARCHAR(255) | Current borrower (empty = in library) |
 | `loanedDate` | DATETIME | When lent out |
@@ -441,43 +475,45 @@ When behind HTTPS nginx, set `SESSION_COOKIE_SECURE=true` in your env.
 | `lastUpdated` | DATETIME | Auto on update |
 
 ### loan_history table
+
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | INT AUTO_INCREMENT | |
-| `movieId` | INT | FK → movies.id (CASCADE) |
-| `loanedTo` | VARCHAR(255) | |
+| `movieId` | INT | FK → movies.id (CASCADE DELETE) |
+| `loanedTo` | VARCHAR(255) | Borrower name |
 | `loanedDate` | DATETIME | |
 | `returnedDate` | DATETIME | NULL = still out |
-| `notes` | VARCHAR(500) | |
+| `notes` | VARCHAR(500) | Optional notes |
 
 ### auth_users table
+
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | INT AUTO_INCREMENT | |
 | `googleId` | VARCHAR(128) UNIQUE | |
 | `email` | VARCHAR(255) UNIQUE | |
-| `name` | VARCHAR(255) | |
-| `picture` | VARCHAR(500) | Avatar URL |
+| `name` | VARCHAR(255) | Display name |
+| `picture` | VARCHAR(500) | Google avatar URL |
 | `firstLogin` | DATETIME | |
 | `lastLogin` | DATETIME | |
 | `loginCount` | INT | |
 
 ### sessions table
-Auto-managed by express-mysql-session.
+Auto-managed by `express-mysql-session`. Created on first run.
 
 ---
 
 ## Security Notes
 
 - **Helmet.js** sets CSP, X-Frame-Options, HSTS, and other security headers on every response
-- **Rate limiting**: auth endpoints capped at 20 req/15 min; API at 300 req/min
-- **All API routes** require an authenticated session (`requireAuth` middleware)
-- **Input validation**: all `:id` params validated as positive integers; barcode/imdbId format-checked with regex; all strings length-capped before DB writes
-- **SQL injection**: all queries use parameterised statements (`?` placeholders) or hardcoded safe strings; dynamic column names are checked against a whitelist
-- **Session cookies**: `httpOnly: true`, `sameSite: lax`; `secure` flag controlled by `SESSION_COOKIE_SECURE` env var (not auto-detected)
-- **Body size**: JSON bodies capped at 64 KB
-- **OMDB responses**: capped at 512 KB; redirect-limited to 3
-- **Secrets**: stored in `/etc/dvd-library/env` (mode 640, root:dvdlib) — never in the app directory or git
+- **Rate limiting**: auth endpoints capped at 20 req/15 min; all API routes at 300 req/min
+- **requireAuth middleware** guards every `/api/*` route (bypassed when `AUTH_ENABLED=false`)
+- **Input validation**: all `:id` params validated as positive integers; `imdbId` checked against `/^tt\d{7,8}$/`; barcodes against `/^[0-9]{8,14}$/`; all strings length-capped before DB writes
+- **SQL injection**: all queries use `pool.query()` with `?` parameterisation; dynamic column names in batch apply are checked against a hardcoded whitelist
+- **Session cookies**: `httpOnly: true`, `sameSite: lax`; `secure` flag controlled explicitly by `SESSION_COOKIE_SECURE` env var
+- **Body size**: JSON bodies capped at 64 KB; uploaded poster images capped at ~3 MB
+- **OMDB responses**: capped at 512 KB; max 3 redirects
+- **Secrets**: stored in `/etc/dvd-library/env` (mode 640, root:dvdlib) — never committed to git
 
 ---
 
@@ -486,7 +522,7 @@ Auto-managed by express-mysql-session.
 ```
 dvd-library/
 ├── README.md
-├── schema.sql                         ← Full DB schema
+├── schema.sql                         ← Full DB schema incl. loans + auth tables
 ├── docker-compose.yml
 ├── .gitignore
 ├── backend/
@@ -495,18 +531,18 @@ dvd-library/
 │   ├── server.js                      ← Express REST API (all routes)
 │   └── .env.example                   ← Environment variable template
 ├── frontend/
-│   ├── index.html                     ← Full PWA (single file)
+│   ├── index.html                     ← Full PWA (single file, no build step)
 │   ├── login.html                     ← Google SSO sign-in page
 │   ├── manifest.json                  ← PWA manifest
-│   └── posters/                       ← Cached poster images (git-ignored)
+│   └── posters/                       ← Locally cached poster images (git-ignored)
 ├── scripts/
-│   ├── fetch-posters.js               ← Download/cache OMDB poster images
-│   ├── migrate-add-localposter.sql
-│   ├── migrate-add-loans.sql
-│   └── migrate-add-auth.sql
+│   ├── fetch-posters.js               ← Download/cache OMDB poster images locally
+│   ├── migrate-add-localposter.sql    ← Migration: add localPoster column
+│   ├── migrate-add-loans.sql          ← Migration: add loan tracking tables
+│   └── migrate-add-auth.sql           ← Migration: add SSO auth tables
 └── systemd/
     ├── dvd-library.service            ← systemd unit file
-    ├── install-service.sh             ← Full installer (Node + MySQL checks, auto-reboot)
+    ├── install-service.sh             ← Full installer: Node check, user, service enable
     └── manage-service.sh              ← start|stop|restart|status|logs|update|uninstall
 ```
 
@@ -517,15 +553,15 @@ dvd-library/
 | Problem | Fix |
 |---------|-----|
 | Camera barcode scanning not working (iOS) | Must be HTTPS. See nginx config above. |
-| `Cannot find module 'mysql2/promise'` in fetch-posters.js | Run from project root: `node scripts/fetch-posters.js` |
-| `Incorrect arguments to mysqld_stmt_execute` | Fixed in current version — all `pool.execute()` calls replaced with `pool.query()` (client-side escaping, no MariaDB prepared-statement protocol issues) |
-| OMDB search returns "key not configured" | Set `OMDB_API_KEY` in env and restart |
-| Login loop / session_expired on first visit | Fixed in current version. Check `SESSION_COOKIE_SECURE=false` for HTTP setups |
-| `redirect_uri_mismatch` on Google sign-in | Redirect URI in Google Console must exactly match `APP_URL/auth/google/callback` |
-| Service won't start after reboot | Check `sudo journalctl -u dvd-library -n 50`; verify env file has real values |
-| Posters stretched in card view | Fixed in current version (`object-fit: cover; object-position: center top`) |
-| Camera button does nothing / "Camera not available" | Must be HTTPS on iOS/Android. On desktop, check browser camera permissions. |
-| Poster upload fails with 413 | Image too large — captured image exceeds ~3 MB decoded. Move camera closer so the cover fills more of the frame. |
-| App shows login page even with `AUTH_ENABLED=false` | Make sure the line is in the correct env file (`/etc/dvd-library/env` for service installs) and the service has been restarted: `sudo systemctl restart dvd-library` |
-| Batch Enrich UI broken / white screen | Fixed — `showSummary()` no longer uses nested template literals. Pull latest `index.html`. |
-
+| Camera poster capture not working (iOS/Android) | Must be HTTPS. Desktop works on HTTP for `localhost`. |
+| Poster upload fails with 413 | Image too large (~3 MB limit). Move camera closer so the cover fills the frame. |
+| `Cannot find module 'mysql2/promise'` in fetch-posters.js | Run from project root: `node scripts/fetch-posters.js` — the script resolves modules from `backend/node_modules` automatically. |
+| `Incorrect arguments to mysqld_stmt_execute` | Fixed — all `pool.execute()` replaced with `pool.query()` (client-side escaping; no MariaDB prepared-statement protocol issues). |
+| OMDB search returns "key not configured" | Set `OMDB_API_KEY` in env and restart. |
+| OMDB search shows no actor match badges | Actor matching requires the **actors field to be populated** in the current form before searching. When editing an existing record the field is pre-filled; when adding new the field is blank until you fill it or pick a first result. |
+| Login loop / "session expired" on first visit | Fixed. Check `SESSION_COOKIE_SECURE=false` for HTTP setups. |
+| `redirect_uri_mismatch` on Google sign-in | Redirect URI in Google Console must exactly match `APP_URL/auth/google/callback`. |
+| App shows login page even with `AUTH_ENABLED=false` | Edit the correct env file (`/etc/dvd-library/env` for service installs) and restart: `sudo systemctl restart dvd-library`. |
+| Service won't start after reboot | `sudo journalctl -u dvd-library -n 50` — verify env file has real values, not placeholders. |
+| Batch Enrich UI blank / white screen | Fixed — `showSummary()` no longer uses nested template literals. Pull latest `index.html`. |
+| Posters stretched in card view | Fixed — `object-fit: cover; object-position: center top` applied to all poster images. |

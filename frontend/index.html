@@ -252,17 +252,40 @@ html, body {
 }
 .omdb-result-row {
   display: flex; gap: 10px; align-items: center;
-  padding: 8px; border-radius: 8px; cursor: pointer;
-  transition: background .15s;
+  padding: 9px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent;
+  transition: background .15s, border-color .15s;
 }
-.omdb-result-row:hover { background: rgba(255,255,255,.05); }
+.omdb-result-row:hover { background: rgba(255,255,255,.05); border-color: var(--border); }
+.omdb-result-row.actor-match {
+  border-color: rgba(16,185,129,.4);
+  background: rgba(16,185,129,.05);
+}
+.omdb-result-row.actor-match:hover { background: rgba(16,185,129,.1); }
 .omdb-thumb {
-  width: 36px; height: 52px; object-fit: cover; border-radius: 4px; flex-shrink: 0;
+  width: 38px; height: 56px; object-fit: cover; border-radius: 4px; flex-shrink: 0;
 }
 .omdb-thumb-ph {
-  width: 36px; height: 52px; border-radius: 4px; flex-shrink: 0;
+  width: 38px; height: 56px; border-radius: 4px; flex-shrink: 0;
   background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 1.2rem;
 }
+.omdb-result-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+.omdb-result-year { font-size: .72rem; color: var(--muted); }
+.omdb-actor-badge {
+  font-size: .62rem; font-weight: 700; padding: 1px 6px; border-radius: 99px;
+  background: rgba(16,185,129,.2); color: #6ee7b7;
+  border: 1px solid rgba(16,185,129,.3); white-space: nowrap;
+}
+.omdb-actor-badge.partial { background: rgba(245,158,11,.15); color: #fcd34d; border-color: rgba(245,158,11,.3); }
+/* Search mode tabs */
+.omdb-tabs { display: flex; gap: 0; margin-bottom: 12px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.omdb-tab {
+  flex: 1; padding: 8px 12px; font-size: .8rem; font-weight: 600;
+  background: none; border: none; color: var(--muted); cursor: pointer;
+  transition: background .15s, color .15s; text-align: center;
+}
+.omdb-tab.active { background: var(--accent); color: #fff; }
+.omdb-tab:not(.active):hover { background: rgba(255,255,255,.06); color: var(--text); }
 
 /* ═══════════════════════════════════════════════
    STATS VIEW
@@ -294,40 +317,12 @@ html, body {
   width: 110px; height: 160px;
   border-radius: 10px; flex-shrink: 0;
   object-fit: cover; object-position: center top;
-  display: block; cursor: pointer;
-  transition: opacity .2s;
+  display: block;
 }
-#detail-poster:hover { opacity: .8; }
 #detail-poster-ph {
   width: 110px; height: 160px; border-radius: 10px; flex-shrink: 0;
-  background: var(--bg); display: flex; align-items: center;
-  justify-content: center; font-size: 3rem;
-  cursor: pointer; transition: background .2s; border: 2px dashed var(--border);
+  background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 3rem;
 }
-#detail-poster-ph:hover { background: rgba(99,102,241,.1); border-color: var(--accent); }
-.poster-action-bar {
-  display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap;
-}
-.poster-action-btn {
-  flex: 1; background: var(--bg-card); border: 1px solid var(--border);
-  color: var(--muted); padding: 5px 8px; border-radius: 8px; cursor: pointer;
-  font-size: .72rem; font-weight: 600; text-align: center; transition: all .15s;
-  white-space: nowrap;
-}
-.poster-action-btn:hover { border-color: var(--accent); color: var(--accent); }
-.poster-action-btn.danger:hover { border-color: var(--danger); color: var(--danger); }
-/* Camera capture overlay */
-#camera-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.92);
-  z-index: 9999; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 16px;
-  padding: 20px;
-}
-#camera-video {
-  max-width: 100%; max-height: 60vh;
-  border-radius: 12px; border: 2px solid var(--accent);
-}
-#camera-canvas { display: none; }
 
 /* ═══════════════════════════════════════════════
    TOAST
@@ -681,11 +676,43 @@ html, body {
     <!-- OMDB Quick Lookup -->
     <div class="card-panel" style="margin-bottom:20px">
       <h6 style="margin-bottom:10px"><i class="bi bi-search"></i> Auto-fill from OMDB / IMDB</h6>
-      <div style="display:flex;gap:8px">
-        <input type="text" id="omdb-q" class="form-control" placeholder="Search movie title…"
-               onkeydown="if(event.key==='Enter'){event.preventDefault();Form.searchOMDB()}">
-        <button class="btn-accent" onclick="Form.searchOMDB()">Search</button>
+
+      <!-- Mode tabs -->
+      <div class="omdb-tabs">
+        <button class="omdb-tab active" id="omdb-tab-title" onclick="Form.switchTab('title')">
+          <i class="bi bi-search"></i> Title Search
+        </button>
+        <button class="omdb-tab" id="omdb-tab-id" onclick="Form.switchTab('id')">
+          <i class="bi bi-hash"></i> IMDB ID
+        </button>
       </div>
+
+      <!-- Title search mode -->
+      <div id="omdb-mode-title">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="omdb-q" class="form-control" placeholder="Search movie title…"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();Form.searchOMDB()}">
+          <button class="btn-accent" onclick="Form.searchOMDB()">Search</button>
+        </div>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:6px">
+          Results with matching cast are highlighted and sorted to the top.
+        </div>
+      </div>
+
+      <!-- Direct IMDB ID mode -->
+      <div id="omdb-mode-id" style="display:none">
+        <div style="display:flex;gap:8px">
+          <input type="text" id="omdb-id-input" class="form-control"
+                 placeholder="e.g. tt0111161"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();Form.lookupByImdbId()}">
+          <button class="btn-accent" onclick="Form.lookupByImdbId()">Look Up</button>
+        </div>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:6px">
+          Find the IMDB ID at <a href="https://www.imdb.com" target="_blank" rel="noopener"
+          style="color:var(--accent)">imdb.com</a> — it appears in the URL as <code>tt</code> followed by digits.
+        </div>
+      </div>
+
       <div id="omdb-results" style="margin-top:10px"></div>
     </div>
 
@@ -933,23 +960,6 @@ html, body {
       </div>
     </div>
   </div>
-</div>
-
-<!-- Camera capture overlay -->
-<div id="camera-overlay" style="display:none">
-  <video id="camera-video" autoplay playsinline muted></video>
-  <canvas id="camera-canvas"></canvas>
-  <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
-    <button class="btn-accent" onclick="PosterCam.capture()" style="min-width:140px">
-      <i class="bi bi-camera-fill"></i> Capture
-    </button>
-    <button class="btn btn-outline-secondary" onclick="PosterCam.closeCamera()" style="min-width:100px">
-      Cancel
-    </button>
-  </div>
-  <p style="color:var(--muted);font-size:.8rem;text-align:center;margin:0">
-    Position the disc cover in frame, then tap Capture
-  </p>
 </div>
 
 <!-- Confirm Delete Modal -->
@@ -1581,36 +1591,148 @@ const Form = {
     };
   },
 
+  // ── Tab switcher ──────────────────────────────────────────────────────────
+  switchTab(mode) {
+    document.getElementById('omdb-mode-title').style.display = mode === 'title' ? '' : 'none';
+    document.getElementById('omdb-mode-id').style.display    = mode === 'id'    ? '' : 'none';
+    document.getElementById('omdb-tab-title').classList.toggle('active', mode === 'title');
+    document.getElementById('omdb-tab-id').classList.toggle('active',    mode === 'id');
+    document.getElementById('omdb-results').innerHTML = '';
+    // Auto-focus the active input
+    setTimeout(() => {
+      const el = mode === 'title'
+        ? document.getElementById('omdb-q')
+        : document.getElementById('omdb-id-input');
+      if (el) el.focus();
+    }, 50);
+  },
+
+  // ── Actor overlap scoring ──────────────────────────────────────────────────
+  // Returns 0–1: how many names from `dbActors` appear in `omdbActors`
+  _actorScore(dbActors, omdbActors) {
+    if (!dbActors || !omdbActors) return 0;
+    // Split on comma, normalize to lowercase, strip extra whitespace
+    const normalize = s => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim();
+    const dbNames = dbActors.split(',').map(n => normalize(n)).filter(Boolean);
+    const omdbStr = normalize(omdbActors);
+    if (!dbNames.length) return 0;
+    const matched = dbNames.filter(name => {
+      // Match on last name or full name
+      const parts = name.trim().split(/\s+/);
+      return parts.some(part => part.length > 2 && omdbStr.includes(part));
+    });
+    return matched.length / dbNames.length;
+  },
+
+  // ── Title search ───────────────────────────────────────────────────────────
   async searchOMDB() {
     const q = document.getElementById('omdb-q').value.trim();
     if (!q) return;
     const div = document.getElementById('omdb-results');
     div.innerHTML = '<div style="text-align:center"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
+
+    // Current record's actors (if editing) for match scoring
+    const currentActors = (document.getElementById('f-actors')?.value || '').trim();
+
     try {
       const r = await apiCall('/search/omdb?q=' + encodeURIComponent(q));
-      if (r.found && r.results?.length) {
-        div.innerHTML = r.results.slice(0,8).map(x => `
-          <div class="omdb-result-row" onclick="Form.loadOMDB('${h(x.imdbID)}')">
-            ${x.Poster && x.Poster !== 'N/A'
-              ? `<img class="omdb-thumb" src="${h(x.Poster)}" alt="" loading="lazy">`
-              : '<div class="omdb-thumb-ph">🎬</div>'}
-            <div>
-              <div style="font-weight:600;font-size:.88rem">${h(x.Title)}</div>
-              <div style="font-size:.78rem;color:var(--muted)">${h(x.Year||'')}</div>
-            </div>
-          </div>`).join('');
-      } else {
-        div.innerHTML = `<p style="color:var(--muted);font-size:.85rem">No results. ${r.message||''}</p>`;
+      if (!r.found || !r.results?.length) {
+        div.innerHTML = '<p style="color:var(--muted);font-size:.85rem">No results. ' + (r.message||'') + '</p>';
+        return;
       }
+
+      const results = r.results.slice(0, 10);
+
+      // Render a placeholder list immediately so the user sees something
+      div.innerHTML = Form._renderResultList(results, {}, currentActors);
+
+      // Fetch full details for the top 5 in parallel to get cast info
+      // (OMDB search results don't include Actors — need individual lookups)
+      if (currentActors) {
+        const topIds = results.slice(0, 5).map(x => x.imdbID);
+        const details = await Promise.allSettled(
+          topIds.map(id => apiCall('/lookup/imdb/' + encodeURIComponent(id)))
+        );
+        // Build a map of imdbID → actors string
+        const actorMap = {};
+        details.forEach((d, i) => {
+          if (d.status === 'fulfilled' && d.value?.found) {
+            actorMap[topIds[i]] = d.value.movie.actors || '';
+          }
+        });
+        // Re-render with actor match info
+        div.innerHTML = Form._renderResultList(results, actorMap, currentActors);
+      }
+
     } catch (err) {
-      if (err.message.includes('OMDB_API_KEY')) {
-        div.innerHTML = `<p style="color:var(--warning);font-size:.85rem">⚠ OMDB key not configured. <a href="https://www.omdbapi.com/apikey.aspx" target="_blank">Get a free key</a> and set OMDB_API_KEY in your .env file.</p>`;
-      } else {
-        div.innerHTML = `<p style="color:var(--danger);font-size:.85rem">${h(err.message)}</p>`;
-      }
+      const msg = err.message.includes('OMDB_API_KEY')
+        ? '⚠ OMDB key not configured. <a href="https://www.omdbapi.com/apikey.aspx" target="_blank">Get a free key</a> and add OMDB_API_KEY to your .env file.'
+        : h(err.message);
+      div.innerHTML = '<p style="color:var(--warning);font-size:.85rem">' + msg + '</p>';
     }
   },
 
+  // ── Render search result list ──────────────────────────────────────────────
+  // actorMap: { imdbID: "Actor1, Actor2, …" } for results we've fully fetched
+  _renderResultList(results, actorMap, currentActors) {
+    // Score every result; sort matched to top
+    const scored = results.map(x => {
+      const omdbActors = actorMap[x.imdbID] || '';
+      const score = Form._actorScore(currentActors, omdbActors);
+      return { ...x, omdbActors, score };
+    });
+    // Sort: full matches first, then partial, then unscored
+    scored.sort((a, b) => b.score - a.score);
+
+    return scored.map(x => {
+      const poster = x.Poster && x.Poster !== 'N/A'
+        ? '<img class="omdb-thumb" src="' + h(x.Poster) + '" alt="" loading="lazy">'
+        : '<div class="omdb-thumb-ph">🎬</div>';
+
+      let badge = '';
+      if (x.omdbActors) {
+        if (x.score >= 0.6)
+          badge = '<span class="omdb-actor-badge">✓ Cast match</span>';
+        else if (x.score > 0)
+          badge = '<span class="omdb-actor-badge partial">~ Partial cast</span>';
+        else
+          badge = '<span style="font-size:.7rem;color:var(--muted);font-style:italic">'
+                + h(x.omdbActors.split(',').slice(0,2).join(', '))
+                + (x.omdbActors.split(',').length > 2 ? '…' : '') + '</span>';
+      }
+
+      const rowClass = x.score >= 0.6 ? 'omdb-result-row actor-match' : 'omdb-result-row';
+
+      return '<div class="\' + rowClass + \'" onclick="Form.loadOMDB(\'\' + h(x.imdbID) + \'\')">'
+        + poster
+        + '<div style="flex:1;min-width:0">'
+        + '<div style="font-weight:600;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + h(x.Title) + '</div>'
+        + '<div class="omdb-result-meta">'
+        + '<span class="omdb-result-year">' + h(x.Year || '') + '</span>'
+        + (x.Type && x.Type !== 'movie' ? '<span style="font-size:.68rem;color:var(--muted);text-transform:capitalize">' + h(x.Type) + '</span>' : '')
+        + '<code style="font-size:.65rem;color:var(--muted)">' + h(x.imdbID) + '</code>'
+        + '</div>'
+        + (badge ? '<div style="margin-top:3px">' + badge + '</div>' : '')
+        + '</div>'
+        + '</div>';
+    }).join('');
+  },
+
+  // ── Direct IMDB ID lookup ──────────────────────────────────────────────────
+  async lookupByImdbId() {
+    const raw = (document.getElementById('omdb-id-input')?.value || '').trim();
+    if (!raw) return;
+    // Accept with or without the tt prefix
+    const imdbId = /^tt\d/.test(raw) ? raw : 'tt' + raw.replace(/\D/g, '');
+    if (!/^tt\d{7,8}$/.test(imdbId)) {
+      document.getElementById('omdb-results').innerHTML =
+        '<p style="color:var(--danger);font-size:.85rem">Invalid IMDB ID — should look like <code>tt0111161</code></p>';
+      return;
+    }
+    await Form.loadOMDB(imdbId);
+  },
+
+  // ── Load full record by IMDB ID and fill form ──────────────────────────────
   async loadOMDB(imdbId) {
     document.getElementById('omdb-results').innerHTML =
       '<div style="text-align:center"><div class="spinner-border spinner-border-sm text-primary"></div></div>';
@@ -1618,8 +1740,7 @@ const Form = {
       const r = await apiCall('/lookup/imdb/' + encodeURIComponent(imdbId));
       if (r.found) {
         this.populate(r.movie);
-        // Check for duplicates, excluding the record currently being edited
-        const { html, matches } = await DupChecker.check(
+        const { html } = await DupChecker.check(
           r.movie.movieName,
           { year: r.movie.year, imdbId: r.movie.imdbId, excludeId: S.editingId }
         );
@@ -1631,6 +1752,9 @@ const Form = {
             '<p style="color:var(--success);font-size:.85rem">✓ Form filled from OMDB — no duplicates found</p>';
           setTimeout(() => { document.getElementById('omdb-results').innerHTML = ''; }, 3000);
         }
+      } else {
+        document.getElementById('omdb-results').innerHTML =
+          '<p style="color:var(--danger);font-size:.85rem">Not found: ' + h(r.message || imdbId) + '</p>';
       }
     } catch (err) {
       toast(err.message, 'danger');
@@ -1667,22 +1791,9 @@ const Detail = {
   },
 
   buildHtml(m) {
-    const hasPoster = !!(m.localPoster || m.coverImage);
-    const posterEl = hasPoster
-      ? `<img id="detail-poster" src="${h(m.localPoster || m.coverImage)}" alt=""
-             onclick="PosterCam.prompt(${m.id}, true)"
-             title="Tap to replace or delete poster">`
-      : `<div id="detail-poster-ph" onclick="PosterCam.prompt(${m.id}, false)"
-             title="Tap to take a photo">📷</div>`;
-    const posterActions = `
-      <div class="poster-action-bar">
-        <button class="poster-action-btn" onclick="PosterCam.openCamera(${m.id})">
-          <i class="bi bi-camera-fill"></i> Camera
-        </button>
-        ${hasPoster
-          ? '<button class="poster-action-btn danger" onclick="PosterCam.deletePoster(' + m.id + ')"><i class="bi bi-trash3"></i> Delete</button>'
-          : ''}
-      </div>`;
+    const posterEl = (m.localPoster || m.coverImage)
+      ? `<img id="detail-poster" src="${h(m.localPoster || m.coverImage)}" alt="">`
+      : `<div id="detail-poster-ph">🎬</div>`;
 
     const rows = [
       m.format    && ['Format',   fmtBadge(m.format)],
@@ -1719,7 +1830,7 @@ const Detail = {
         Currently on loan to <strong>${h(m.loanedTo)}</strong> since ${new Date(m.loanedDate).toLocaleDateString()}
       </div>` : ''}
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">
-        <div style="flex-shrink:0">${posterEl}${posterActions}</div>
+        ${posterEl}
         <div style="flex:1;min-width:160px">
           ${rows.map(([k,v]) => `
             <div style="display:flex;gap:10px;margin-bottom:6px;font-size:.85rem">
@@ -2053,56 +2164,39 @@ const Batch = {
       </p>
       <div style="margin-bottom:16px">
         <label class="form-label">What to enrich</label>
-        <select id="batch-missing-select" class="form-select" onchange="Batch.previewCount()">
+        <select id="batch-missing-select" class="form-select">
           <option value="any">Any missing data (IMDB ID, barcode, or poster)</option>
           <option value="imdb">Missing IMDB ID only</option>
           <option value="barcode">Missing barcode only</option>
           <option value="poster">Missing poster only</option>
         </select>
       </div>
-      <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
-        <div style="flex:1;min-width:120px">
-          <label class="form-label">Max to review</label>
-          <select id="batch-limit-select" class="form-select">
-            <option value="10">10 movies</option>
-            <option value="25">25 movies</option>
-            <option value="50" selected>50 movies</option>
-            <option value="100">100 movies</option>
-            <option value="200">200 movies</option>
-            <option value="500">All (up to 500)</option>
-          </select>
-        </div>
-        <div style="flex:1;min-width:120px">
-          <label class="form-label">Start at record #
-            <span id="batch-total-hint" style="color:var(--muted);font-weight:400"></span>
-          </label>
-          <input id="batch-offset-input" type="number" class="form-control"
-                 value="1" min="1" step="1" placeholder="1"
-                 title="Skip the first N-1 candidates and begin from record N">
-        </div>
+      <div style="margin-bottom:20px">
+        <label class="form-label">Limit (max movies to review)</label>
+        <select id="batch-limit-select" class="form-select">
+          <option value="10">10 movies</option>
+          <option value="25">25 movies</option>
+          <option value="50" selected>50 movies</option>
+          <option value="100">100 movies</option>
+          <option value="200">All (up to 200)</option>
+        </select>
       </div>
-      <div id="batch-preview-area" style="margin-bottom:16px"></div>
       <button class="btn-accent" style="width:100%" onclick="Batch.start()">
         <i class="bi bi-magic"></i> Start Batch Enrich
       </button>`;
-    Batch.previewCount();
     this.modal.show();
   },
 
   async start() {
     const missing = document.getElementById('batch-missing-select')?.value || 'any';
     const limit   = document.getElementById('batch-limit-select')?.value   || '50';
-    const startAt = Math.max(parseInt(document.getElementById('batch-offset-input')?.value || '1', 10), 1);
-    const offset  = startAt - 1;   // UI is 1-based, API is 0-based
     document.getElementById('batch-modal-body').innerHTML =
       '<div style="text-align:center;padding:40px"><div class="spinner-border text-primary"></div><p style="margin-top:12px;color:var(--muted)">Finding candidates…</p></div>';
     try {
-      const r = await apiCall(`/batch/candidates?missing=${missing}&limit=${limit}&offset=${offset}`);
-      this.candidates      = r.candidates;
-      this.total           = r.candidates.length;
-      this.totalCandidates = r.totalCandidates;
-      this.startOffset     = offset;
-      this.current         = 0;
+      const r = await apiCall(`/batch/candidates?missing=${missing}&limit=${limit}`);
+      this.candidates = r.candidates;
+      this.total      = r.candidates.length;
+      this.current    = 0;
       if (!this.total) {
         document.getElementById('batch-modal-body').innerHTML =
           `<div style="text-align:center;padding:40px">
@@ -2286,45 +2380,7 @@ const Batch = {
 
   stop() { this.stopped = true; },
 
-  // Fetch total candidate count for the selected filter and show hint + tip
-  async previewCount() {
-    const missing = document.getElementById('batch-missing-select')?.value || 'any';
-    const hintEl  = document.getElementById('batch-total-hint');
-    const prevEl  = document.getElementById('batch-preview-area');
-    if (!hintEl) return;
-    hintEl.textContent = '…';
-    try {
-      const r = await apiCall('/batch/candidates?missing=' + missing + '&limit=1&offset=0');
-      const n = r.totalCandidates || 0;
-      hintEl.textContent = n ? '(' + n + ' total)' : '(none found)';
-      if (prevEl) {
-        if (n === 0) {
-          prevEl.innerHTML = '<div style="color:var(--success);font-size:.85rem">&#10003; No candidates — nothing to enrich for this filter.</div>';
-        } else {
-          prevEl.innerHTML = '<div style="background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:10px 14px;font-size:.83rem;color:var(--muted)">'
-            + '<strong style="color:var(--text)">' + n + ' records</strong> need enriching. '
-            + 'Set &ldquo;Start at record&rdquo; to <strong>1</strong> to begin from the top, '
-            + 'or a higher number to skip records already reviewed. '
-            + 'Note the number shown at the end of each session to resume next time.</div>';
-        }
-      }
-    } catch (_) {
-      if (hintEl) hintEl.textContent = '';
-    }
-  },
-
   showSummary() {
-    // Compute resume info BEFORE the template literal to avoid nested backtick issues
-    const nextRecord  = (this.startOffset || 0) + this.total + 1;
-    const remaining   = (this.totalCandidates || 0) - (this.startOffset || 0) - this.total;
-    const resumeHtml  = remaining > 0
-      ? '<div style="margin-top:16px;background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);border-radius:10px;padding:12px;font-size:.84rem;text-align:left">'
-        + '<strong>Resume next session:</strong> set &ldquo;Start at record&rdquo; to <strong>' + nextRecord + '</strong>'
-        + ' <span style="color:var(--muted)">(' + remaining + ' records remaining)</span></div>'
-      : '<p style="margin-top:12px;font-size:.85rem;color:var(--success)">&#10003; All candidates reviewed!</p>';
-    const posterNote  = this.updated
-      ? '<p style="margin-top:12px;font-size:.85rem;color:var(--muted)">Run <code>node scripts/fetch-posters.js</code> to download any new poster images.</p>'
-      : '';
     document.getElementById('batch-modal-body').innerHTML = `
       <div style="text-align:center;padding:30px">
         <i class="bi bi-check-circle-fill" style="font-size:3rem;color:var(--success);display:block;margin-bottom:16px"></i>
@@ -2332,9 +2388,9 @@ const Batch = {
         <div style="display:flex;justify-content:center;gap:24px;margin-top:16px">
           <div><div style="font-size:2rem;font-weight:800;color:var(--success)">${this.updated}</div><div style="font-size:.8rem;color:var(--muted)">Updated</div></div>
           <div><div style="font-size:2rem;font-weight:800;color:var(--muted)">${this.skipped}</div><div style="font-size:.8rem;color:var(--muted)">Skipped</div></div>
-          <div><div style="font-size:2rem;font-weight:800;color:var(--accent)">${this.total}</div><div style="font-size:.8rem;color:var(--muted)">Reviewed</div></div>
+          <div><div style="font-size:2rem;font-weight:800;color:var(--accent)">${this.total}</div><div style="font-size:.8rem;color:var(--muted)">Total</div></div>
         </div>
-        ${resumeHtml}${posterNote}
+        ${this.updated ? '<p style="margin-top:16px;font-size:.85rem;color:var(--muted)">Run <code>node scripts/fetch-posters.js</code> to download any new poster images.</p>' : ''}
       </div>`;
     document.getElementById('batch-modal-footer').innerHTML =
       `<button class="btn-accent" data-bs-dismiss="modal" onclick="Library.reload()">Done</button>`;
@@ -2343,146 +2399,39 @@ const Batch = {
 };
 
 // ════════════════════════════════════════════════
-// POSTER CAMERA
-// ════════════════════════════════════════════════
-const PosterCam = {
-  _stream:  null,
-  _movieId: null,
-
-  prompt(movieId, hasImage) {
-    // The action bar under the poster already shows the buttons;
-    // this is called when tapping the image/placeholder itself.
-    if (hasImage) {
-      this.openCamera(movieId);
-    } else {
-      this.openCamera(movieId);
-    }
-  },
-
-  async openCamera(movieId) {
-    this._movieId = movieId;
-    const overlay = document.getElementById('camera-overlay');
-    const video   = document.getElementById('camera-video');
-    try {
-      this._stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 960 } },
-        audio: false,
-      });
-      video.srcObject = this._stream;
-      overlay.style.display = 'flex';
-    } catch (err) {
-      toast('Camera not available: ' + err.message, 'danger');
-    }
-  },
-
-  capture() {
-    const video  = document.getElementById('camera-video');
-    const canvas = document.getElementById('camera-canvas');
-    // Downscale to a sensible poster size (max 600px wide)
-    const scale  = Math.min(1, 600 / video.videoWidth);
-    canvas.width  = Math.round(video.videoWidth  * scale);
-    canvas.height = Math.round(video.videoHeight * scale);
-    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = canvas.toDataURL('image/jpeg', 0.85);
-    this.closeCamera();
-    this.upload(imageData);
-  },
-
-  closeCamera() {
-    if (this._stream) {
-      this._stream.getTracks().forEach(t => t.stop());
-      this._stream = null;
-    }
-    document.getElementById('camera-overlay').style.display = 'none';
-    document.getElementById('camera-video').srcObject = null;
-  },
-
-  async upload(imageData) {
-    if (!this._movieId) return;
-    try {
-      toast('Saving poster…', 'primary');
-      const r = await apiCall('/movies/' + this._movieId + '/poster', {
-        method: 'POST',
-        body: JSON.stringify({ imageData }),
-      });
-      toast('✓ Poster saved', 'success');
-      // Refresh the detail modal poster immediately
-      const img = document.getElementById('detail-poster');
-      const ph  = document.getElementById('detail-poster-ph');
-      if (img) {
-        img.src = r.localPoster + '?t=' + Date.now(); // cache-bust
-      } else if (ph) {
-        // Replace placeholder with real image
-        ph.outerHTML = '<img id="detail-poster" src="' + r.localPoster + '?t=' + Date.now() + '" ' +
-          'onclick="PosterCam.prompt(' + this._movieId + ', true)" style="cursor:pointer">';
-      }
-      // Update the library card in the background
-      Library.reload();
-    } catch (err) {
-      toast('Poster upload failed: ' + err.message, 'danger');
-    }
-  },
-
-  async deletePoster(movieId) {
-    if (!confirm('Remove the poster image for this movie?')) return;
-    try {
-      await apiCall('/movies/' + movieId + '/poster', { method: 'DELETE' });
-      toast('Poster removed', 'warning');
-      // Swap image for placeholder in detail modal
-      const img = document.getElementById('detail-poster');
-      if (img) {
-        img.outerHTML = '<div id="detail-poster-ph" onclick="PosterCam.prompt(' + movieId + ', false)" ' +
-          'style="cursor:pointer" title="Tap to take a photo">📷</div>';
-      }
-      Library.reload();
-    } catch (err) {
-      toast('Delete failed: ' + err.message, 'danger');
-    }
-  },
-};
-
-// ════════════════════════════════════════════════
 // AUTH
 // ════════════════════════════════════════════════
 const Auth = {
-  // true once /api/auth/me returns 200 — used by apiCall() to distinguish
-  // "first visit" 401 from "session expired mid-use" 401.
-  verified:    false,
-  authEnabled: true,   // updated by init() from server response
+  // Set to true once /api/auth/me returns 200 (user is confirmed logged in).
+  // apiCall() uses this to decide whether a later 401 is a real session expiry.
+  verified: false,
 
   async init() {
     try {
+      // Fetch directly (not via apiCall) so we can handle 401 ourselves
+      // without the "session_expired" redirect triggering on first visit.
       const res = await fetch(API + '/auth/me', { credentials: 'same-origin' });
-      const data = await res.json().catch(() => ({}));
-
-      // Server says auth is disabled globally — run without login
-      if (data.authEnabled === false) {
-        Auth.verified    = true;
-        Auth.authEnabled = false;
-        // Hide user pill entirely when auth is off
-        const pill = document.getElementById('user-pill');
-        if (pill) pill.style.display = 'none';
-        return;
-      }
 
       if (res.status === 401) {
+        // Not logged in at all — go to login page with no error message
         window.location.href = '/login.html';
         return;
       }
 
+      const data = await res.json();
       if (data.authenticated && data.user) {
-        Auth.verified    = true;
-        Auth.authEnabled = true;
+        Auth.verified = true;
         const pill   = document.getElementById('user-pill');
         const avatar = document.getElementById('user-avatar');
         const name   = document.getElementById('user-name');
         if (data.user.picture) avatar.src = data.user.picture;
         name.textContent = data.user.name || data.user.email || '';
-        if (pill) pill.style.display = 'flex';
+        pill.style.display = 'flex';
       } else {
         window.location.href = '/login.html';
       }
     } catch (err) {
+      // Network error — don't redirect, let the user see the app attempt
       console.warn('Auth check failed (network?):', err.message);
     }
   },

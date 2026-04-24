@@ -1078,8 +1078,12 @@ const App = {
     document.getElementById('f-id').value = '';
     document.getElementById('cover-preview-img').style.display = 'none';
     document.getElementById('omdb-results').innerHTML = '';
-    // If we have a title from a barcode scan, pre-populate OMDB search
+    // If we have a title from a barcode scan, pre-populate title search
     document.getElementById('omdb-q').value = (prefill && prefill.movieName) ? prefill.movieName : '';
+    // Clear and reset IMDB ID tab; pre-fill if barcode scan already resolved an ID
+    const idInputAdd = document.getElementById('omdb-id-input');
+    if (idInputAdd) idInputAdd.value = (prefill && prefill.imdbId) ? prefill.imdbId : '';
+    Form.switchTab('title');
     if (prefill) Form.populate(prefill);
     this.showView('form');
   },
@@ -1703,18 +1707,9 @@ const Form = {
 
       const rowClass = x.score >= 0.6 ? 'omdb-result-row actor-match' : 'omdb-result-row';
 
-      return '<div class="\' + rowClass + \'" onclick="Form.loadOMDB(\'\' + h(x.imdbID) + \'\')">'
-        + poster
-        + '<div style="flex:1;min-width:0">'
-        + '<div style="font-weight:600;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + h(x.Title) + '</div>'
-        + '<div class="omdb-result-meta">'
-        + '<span class="omdb-result-year">' + h(x.Year || '') + '</span>'
-        + (x.Type && x.Type !== 'movie' ? '<span style="font-size:.68rem;color:var(--muted);text-transform:capitalize">' + h(x.Type) + '</span>' : '')
-        + '<code style="font-size:.65rem;color:var(--muted)">' + h(x.imdbID) + '</code>'
-        + '</div>'
-        + (badge ? '<div style="margin-top:3px">' + badge + '</div>' : '')
-        + '</div>'
-        + '</div>';
+      const safeId = h(x.imdbID);
+      const pe = 'pointer-events:none';
+      return '<div class="' + rowClass + '" style="cursor:pointer" onclick="Form.loadOMDB(&quot;' + safeId + '&quot;)">'        + '<div style="' + pe + ';display:flex;align-items:center;gap:10px;width:100%">'        + poster        + '<div style="' + pe + ';flex:1;min-width:0">'        + '<div style="' + pe + ';font-weight:600;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + h(x.Title) + '</div>'        + '<div class="omdb-result-meta" style="' + pe + '">'        + '<span class="omdb-result-year" style="' + pe + '">' + h(x.Year || '') + '</span>'        + (x.Type && x.Type !== 'movie' ? '<span style="' + pe + ';font-size:.68rem;color:var(--muted);text-transform:capitalize">' + h(x.Type) + '</span>' : '')        + '<code style="' + pe + ';font-size:.65rem;color:var(--muted)">' + safeId + '</code>'        + '</div>'        + (badge ? '<div style="' + pe + ';margin-top:3px">' + badge + '</div>' : '')        + '</div>'        + '</div>'        + '</div>';
     }).join('');
   },
 
@@ -1860,8 +1855,13 @@ const Detail = {
     document.getElementById('movie-form').reset();
     document.getElementById('f-id').value = m.id;
     document.getElementById('omdb-results').innerHTML = '';
-    // Pre-populate OMDB search with the current title so one tap searches it
+    // Pre-populate title search with movie name
     document.getElementById('omdb-q').value = m.movieName || '';
+    // Pre-populate IMDB ID tab with existing ID if the record has one
+    const idInput = document.getElementById('omdb-id-input');
+    if (idInput) idInput.value = m.imdbId || '';
+    // Always open on the title tab so the pre-filled title is visible
+    Form.switchTab('title');
     Form.populate(m);
     App.showView('form');
     // Nav highlight form

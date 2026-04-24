@@ -194,11 +194,13 @@ Result highlighting:
 | ~ **Partial cast** (amber) | Some cast overlap but below 60% |
 | *(cast preview)* | No match — shows the first two OMDB actor names so you can judge manually |
 
-Click any result to auto-fill the entire form (title, year, director, cast, genre, plot, rating, poster, IMDB ID).
+Click any result row to auto-fill the entire form (title, year, director, cast, genre, plot, rating, poster, IMDB ID). The entire row is clickable including the badge and cast preview text.
 
 ### Direct IMDB ID Lookup
 
-Switch to the **IMDB ID** tab when you already know the exact title. Enter the ID in `tt1234567` format — the `tt` prefix is added automatically if you paste just the digits. Fetches full details directly with no ambiguity.
+Switch to the **IMDB ID** tab when you already know the exact ID. Enter it in `tt1234567` format — the `tt` prefix is added automatically if you paste just the digits. Fetches full details directly with no ambiguity.
+
+**When editing an existing record**, the IMDB ID tab is pre-filled with the record's current `imdbId` value (if one exists), so you can switch straight to that tab and hit Look Up to refresh metadata without retyping. When adding a new record the field starts empty.
 
 To find an IMDB ID: go to [imdb.com](https://www.imdb.com), find the movie, and copy the `tt` number from the URL (e.g. `https://www.imdb.com/title/tt0111161/`).
 
@@ -558,6 +560,8 @@ dvd-library/
 | `Cannot find module 'mysql2/promise'` in fetch-posters.js | Run from project root: `node scripts/fetch-posters.js` — the script resolves modules from `backend/node_modules` automatically. |
 | `Incorrect arguments to mysqld_stmt_execute` | Fixed — all `pool.execute()` replaced with `pool.query()` (client-side escaping; no MariaDB prepared-statement protocol issues). |
 | OMDB search returns "key not configured" | Set `OMDB_API_KEY` in env and restart. |
+| OMDB search results not clickable | Fixed — child elements (badge, cast preview, year) now have `pointer-events:none` so clicks pass through to the row. Pull latest `index.html`. |
+| IMDB ID tab empty when editing a record | Fixed — `Detail.edit()` now pre-fills the IMDB ID input from the record's existing `imdbId` value. |
 | OMDB search shows no actor match badges | Actor matching requires the **actors field to be populated** in the current form before searching. When editing an existing record the field is pre-filled; when adding new the field is blank until you fill it or pick a first result. |
 | Login loop / "session expired" on first visit | Fixed. Check `SESSION_COOKIE_SECURE=false` for HTTP setups. |
 | `redirect_uri_mismatch` on Google sign-in | Redirect URI in Google Console must exactly match `APP_URL/auth/google/callback`. |

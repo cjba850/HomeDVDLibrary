@@ -406,6 +406,28 @@ html, body {
 .filter-chip:hover { background: rgba(99,102,241,.28); }
 
 /* ═══════════════════════════════════════════════
+   SCANNER SIMILAR MATCHES
+   ═══════════════════════════════════════════════ */
+.scan-similar-row {
+  display: flex; gap: 12px; align-items: center;
+  padding: 9px 10px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--border); margin-bottom: 7px;
+  transition: border-color .15s, background .15s;
+}
+.scan-similar-row:hover {
+  border-color: var(--accent); background: rgba(99,102,241,.06);
+}
+.scan-similar-thumb {
+  width: 40px; height: 58px; object-fit: cover;
+  border-radius: 5px; flex-shrink: 0;
+}
+.scan-similar-thumb-ph {
+  width: 40px; height: 58px; border-radius: 5px; flex-shrink: 0;
+  background: var(--bg); display: flex; align-items: center;
+  justify-content: center; font-size: 1.2rem;
+}
+
+/* ═══════════════════════════════════════════════
    DUPLICATE WARNING
    ═══════════════════════════════════════════════ */
 .dup-warning {
@@ -1442,60 +1464,177 @@ const Scanner = {
     this.onScanned(code);
   },
 
+  // ── Strip disc-format noise from UPC database titles ─────────────────────
+  // UPC entries often look like "Hugo [DVD] [BoxedSet]" or "Alien (Widescreen)"
+  cleanTitle(raw) {
+    if (!raw) return '';
+    return raw
+      .replace(/\[[^\]]*\]/g, '')
+      .replace(/\((widescreen|full.?screen|4k|uhd|blu.?ray|dvd|boxed?.?set|collector|special|limited|anniversary|edition|remaster\w*|director\w*|extended|theatrical|bonus|import|region \d)[^)]*\)/gi, '')
+      .replace(/\b(dvd|blu-?ray|4k|uhd|boxset|box set|widescreen|fullscreen)\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim() || raw.trim();
+  },
+
   showResult(result, barcode) {
     const area = document.getElementById('scan-result-area');
+
+    // ── (a) Exact barcode match in DB ─────────────────────────────────────────
     if (result.inLibrary) {
       const m = result.movie;
-      area.innerHTML = `
-        <div class="card-panel">
-          <div style="display:flex;gap:12px;align-items:center">
-            ${m.localPoster||m.coverImage ? `<img src="${h(m.localPoster||m.coverImage)}" style="width:55px;border-radius:7px" alt="">` : '<div style="width:55px;height:80px;background:var(--bg);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:1.5rem">🎬</div>'}
-            <div>
-              <div style="font-size:.72rem;color:var(--success);font-weight:700;margin-bottom:4px">✓ Already in Your Library</div>
-              <div style="font-weight:600">${h(m.movieName)}</div>
-              <div style="font-size:.8rem;color:var(--muted)">${h(m.year||'')} · ${h(m.format||'')}</div>
-            </div>
-          </div>
-          <button class="btn btn-outline-primary btn-sm mt-3" onclick="Detail.show(${m.id})">View Details</button>
-        </div>`;
-    } else if (result.found) {
-      const m = result.movie;
-      // Render the "Found Online" card first, then async-inject duplicate warning
-      area.innerHTML = `
-        <div class="card-panel">
-          <div style="font-size:.72rem;color:var(--accent);font-weight:700;margin-bottom:10px">✦ Found Online</div>
-          <div id="scan-dup-area"></div>
-          <div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">
-            ${m.coverImage ? `<img src="${h(m.coverImage)}" style="width:55px;border-radius:7px" alt="">` : '<div style="width:55px;height:80px;background:var(--bg);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:1.5rem">🎬</div>'}
-            <div>
-              <div style="font-weight:600">${h(m.movieName||barcode)}</div>
-              <div style="font-size:.8rem;color:var(--muted)">${h(m.year||'')} ${m.genre ? '· '+h(m.genre) : ''}</div>
-              ${m.imdbRating ? `<span class="imdb-pill" style="margin-top:5px;display:inline-block">⭐ ${h(m.imdbRating)}</span>` : ''}
-            </div>
-          </div>
-          <button class="btn-accent" onclick="Scanner.addFromResult()">
-            <i class="bi bi-plus-lg"></i> Add to Library
-          </button>
-        </div>`;
-      // Check for duplicates in background and inject warning if found
-      DupChecker.check(m.movieName, { year: m.year, imdbId: m.imdbId }).then(({ html }) => {
-        const dupArea = document.getElementById('scan-dup-area');
-        if (dupArea && html) dupArea.innerHTML = html;
-      });
-    } else {
-      area.innerHTML = `
-        <div class="card-panel">
-          <div style="color:var(--warning);font-weight:700;margin-bottom:8px">⚠ Barcode Not Found</div>
-          <p style="font-size:.87rem;color:var(--muted)">Barcode <code>${h(barcode)}</code> wasn't in online databases.</p>
-          <button class="btn-accent" onclick="App.showAddForm({barcode:'${h(barcode)}'})">
-            <i class="bi bi-pencil"></i> Add Manually
-          </button>
-        </div>`;
+      const thumb = (m.localPoster || m.coverImage)
+        ? '<img src="' + h(m.localPoster || m.coverImage) + '" style="width:55px;border-radius:7px" alt="">'
+        : '<div style="width:55px;height:80px;background:var(--bg);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:1.5rem">🎬</div>';
+      area.innerHTML =
+        '<div class="card-panel">'
+        + '<div style="display:flex;gap:12px;align-items:center">' + thumb
+        + '<div>'
+        + '<div style="font-size:.72rem;color:var(--success);font-weight:700;margin-bottom:4px">✓ Already in Your Library</div>'
+        + '<div style="font-weight:600">' + h(m.movieName) + '</div>'
+        + '<div style="font-size:.8rem;color:var(--muted)">' + h(m.year || '') + ' · ' + h(m.format || '') + '</div>'
+        + '</div></div>'
+        + '<button class="btn btn-outline-primary btn-sm mt-3" onclick="Detail.show(' + m.id + ')">View Details</button>'
+        + '</div>';
+      return;
     }
+
+    // ── (b) + (c) Found in UPC database — title known, no DB barcode match ───
+    if (result.found) {
+      const m        = result.movie;
+      const rawTitle = m.movieName || barcode;
+      const cleanT   = Scanner.cleanTitle(rawTitle);
+      const thumb    = m.coverImage
+        ? '<img src="' + h(m.coverImage) + '" style="width:55px;border-radius:7px" alt="">'
+        : '<div style="width:55px;height:80px;background:var(--bg);border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:1.5rem">🎬</div>';
+      const cleanNote = (cleanT !== rawTitle)
+        ? '<div style="font-size:.7rem;color:var(--muted);margin-top:2px">Search title: <em>' + h(cleanT) + '</em></div>'
+        : '';
+
+      area.innerHTML =
+        '<div class="card-panel">'
+        + '<div style="font-size:.72rem;color:var(--accent);font-weight:700;margin-bottom:10px">✦ Found Online</div>'
+        + '<div id="scan-similar-area"></div>'
+        + '<div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">'
+        + thumb
+        + '<div>'
+        + '<div style="font-size:.7rem;color:var(--muted);margin-bottom:2px">UPC lookup result</div>'
+        + '<div style="font-weight:600">' + h(rawTitle) + '</div>'
+        + cleanNote
+        + (m.year ? '<div style="font-size:.8rem;color:var(--muted)">' + h(m.year) + (m.genre ? ' · ' + h(m.genre) : '') + '</div>' : '')
+        + (m.imdbRating ? '<span class="imdb-pill" style="margin-top:5px;display:inline-block">&#11088; ' + h(m.imdbRating) + '</span>' : '')
+        + '</div></div>'
+        + '<button class="btn-accent" style="width:100%;margin-bottom:8px" onclick="Scanner.addFromResult()">'
+        + '<i class="bi bi-plus-lg"></i> Add as New Entry</button>'
+        + '</div>';
+
+      // (c) async: find similar existing records and inject above the UPC result
+      Scanner._loadSimilarMatches(cleanT, barcode);
+      return;
+    }
+
+    // ── Barcode not found in any external DB ──────────────────────────────────
+    area.innerHTML =
+      '<div class="card-panel">'
+      + '<div style="color:var(--warning);font-weight:700;margin-bottom:8px">&#9888; Barcode Not Found</div>'
+      + '<p style="font-size:.87rem;color:var(--muted)">Barcode <code>' + h(barcode) + '</code> was not found in online databases.</p>'
+      + '<button class="btn-accent" onclick="App.showAddForm({barcode:\'' + h(barcode) + '\'})">'
+      + '<i class="bi bi-pencil"></i> Add Manually</button>'
+      + '</div>';
+  },
+
+  async _loadSimilarMatches(cleanTitle, barcode) {
+    const simArea = document.getElementById('scan-similar-area');
+    if (!simArea) return;
+    try {
+      const r = await apiCall('/similar?title=' + encodeURIComponent(cleanTitle));
+      if (!r.count || !r.matches || !r.matches.length) return;
+
+      let html =
+        '<div style="margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)">'
+        + '<div style="font-size:.75rem;font-weight:700;color:var(--success);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">'
+        + '&#128218; Similar titles already in your library</div>'
+        + '<div style="font-size:.78rem;color:var(--muted);margin-bottom:10px">'
+        + 'Tap a record to assign this barcode to it — saves you re-entering the movie.</div>';
+
+      r.matches.slice(0, 5).forEach(function(match) {
+        const src = match.localPoster || match.coverImage || '';
+        const thumb = src
+          ? '<img class="scan-similar-thumb" src="' + h(src) + '" alt="" loading="lazy">'
+          : '<div class="scan-similar-thumb-ph">🎬</div>';
+
+        const confColour = (match.confidence === 'exact' || match.confidence === 'imdbId')
+          ? 'var(--success)'
+          : match.confidence === 'high' ? 'var(--warning)'
+          : 'var(--muted)';
+        const confLabel = match.confidence === 'exact'  ? 'Exact'
+          : match.confidence === 'high'    ? 'Very similar'
+          : match.confidence === 'soundex' ? 'Sounds alike'
+          : 'Possible';
+
+        const actors = match.actors
+          ? '<div style="font-size:.72rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+            + h(match.actors.split(',').slice(0, 2).join(', '))
+            + (match.actors.split(',').length > 2 ? '…' : '') + '</div>'
+          : '';
+
+        html +=
+          '<div class="scan-similar-row" onclick="Scanner.assignBarcode(' + match.id + ', \'' + h(barcode) + '\')">'
+          + thumb
+          + '<div style="flex:1;min-width:0">'
+          + '<div style="font-weight:600;font-size:.87rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + h(match.movieName) + '</div>'
+          + '<div style="font-size:.76rem;color:var(--muted)">'
+          + (match.year ? h(match.year) + ' · ' : '')
+          + (match.format ? h(match.format) : '')
+          + '</div>'
+          + actors
+          + '</div>'
+          + '<div style="flex-shrink:0;text-align:center;padding-left:8px">'
+          + '<i class="bi bi-upc-scan" style="color:' + confColour + ';font-size:1.2rem;display:block"></i>'
+          + '<div style="font-size:.62rem;color:' + confColour + ';white-space:nowrap">' + confLabel + '</div>'
+          + '</div></div>';
+      });
+
+      html += '</div>';
+      simArea.innerHTML = html;
+    } catch (_) { /* similar lookup failure is non-critical */ }
+  },
+
+  async assignBarcode(movieId, barcode) {
+    let m;
+    try {
+      m = S.movies.find(function(x) { return x.id === movieId; });
+      if (!m) m = await apiCall('/movies/' + movieId);
+    } catch (e) {
+      toast('Could not load record: ' + e.message, 'danger');
+      return;
+    }
+
+    // Inject the scanned barcode into the record data
+    const withBarcode = Object.assign({}, m, { barcode: barcode });
+
+    // Open the edit form
+    S.editingId = m.id;
+    document.getElementById('form-heading').textContent = 'Assign Barcode — ' + (m.movieName || '');
+    document.getElementById('btn-delete-form').style.display = '';
+    document.getElementById('movie-form').reset();
+    document.getElementById('f-id').value = m.id;
+    document.getElementById('omdb-results').innerHTML = '';
+    document.getElementById('omdb-q').value = m.movieName || '';
+    const idInput = document.getElementById('omdb-id-input');
+    if (idInput) idInput.value = m.imdbId || '';
+    Form.switchTab('title');
+    Form.populate(withBarcode);
+
+    toast('Barcode pre-filled — review and Save to link it to this record', 'warning');
+    App.showView('form');
   },
 
   addFromResult() {
-    if (S.scanResult?.movie) App.showAddForm(S.scanResult.movie);
+    if (S.scanResult && S.scanResult.movie) {
+      const clean = Object.assign({}, S.scanResult.movie);
+      clean.movieName = Scanner.cleanTitle(clean.movieName || '');
+      App.showAddForm(clean);
+    }
   },
 };
 
